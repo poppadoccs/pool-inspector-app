@@ -92,41 +92,41 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| JOBS-01 | Pending | Pending |
-| JOBS-02 | Pending | Pending |
-| JOBS-03 | Pending | Pending |
-| JOBS-04 | Pending | Pending |
-| PHOT-01 | Pending | Pending |
-| PHOT-02 | Pending | Pending |
-| PHOT-03 | Pending | Pending |
-| PHOT-04 | Pending | Pending |
-| PHOT-05 | Pending | Pending |
-| PHOT-06 | Pending | Pending |
-| FORM-01 | Pending | Pending |
-| FORM-02 | Pending | Pending |
-| FORM-03 | Pending | Pending |
-| FORM-04 | Pending | Pending |
-| FORM-05 | Pending | Pending |
-| AITL-01 | Pending | Pending |
-| AITL-02 | Pending | Pending |
-| AITL-03 | Pending | Pending |
-| AITL-04 | Pending | Pending |
-| SUBM-01 | Pending | Pending |
-| SUBM-02 | Pending | Pending |
-| SUBM-03 | Pending | Pending |
-| SUBM-04 | Pending | Pending |
-| SUBM-05 | Pending | Pending |
-| IPAD-01 | Pending | Pending |
-| IPAD-02 | Pending | Pending |
-| IPAD-03 | Pending | Pending |
-| IPAD-04 | Pending | Pending |
-| IPAD-05 | Pending | Pending |
+| JOBS-01 | Phase 1 | Pending |
+| JOBS-02 | Phase 1 | Pending |
+| JOBS-03 | Phase 1 | Pending |
+| JOBS-04 | Phase 1 | Pending |
+| IPAD-01 | Phase 1 | Pending |
+| IPAD-02 | Phase 1 | Pending |
+| IPAD-03 | Phase 1 | Pending |
+| IPAD-04 | Phase 1 | Pending |
+| IPAD-05 | Phase 1 | Pending |
+| PHOT-01 | Phase 2 | Pending |
+| PHOT-02 | Phase 2 | Pending |
+| PHOT-03 | Phase 2 | Pending |
+| PHOT-04 | Phase 2 | Pending |
+| PHOT-05 | Phase 2 | Pending |
+| PHOT-06 | Phase 2 | Pending |
+| FORM-01 | Phase 3 | Pending |
+| FORM-02 | Phase 3 | Pending |
+| FORM-03 | Phase 3 | Pending |
+| FORM-04 | Phase 3 | Pending |
+| FORM-05 | Phase 3 | Pending |
+| AITL-01 | Phase 4 | Pending |
+| AITL-02 | Phase 4 | Pending |
+| AITL-03 | Phase 4 | Pending |
+| AITL-04 | Phase 4 | Pending |
+| SUBM-01 | Phase 5 | Pending |
+| SUBM-02 | Phase 5 | Pending |
+| SUBM-03 | Phase 5 | Pending |
+| SUBM-04 | Phase 5 | Pending |
+| SUBM-05 | Phase 5 | Pending |
 
 **Coverage:**
 - v1 requirements: 29 total
-- Mapped to phases: 0
-- Unmapped: 29 ⚠️
+- Mapped to phases: 29
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-25*
-*Last updated: 2026-03-25 after initial definition*
+*Last updated: 2026-03-25 after roadmap creation — all 29 requirements mapped*
