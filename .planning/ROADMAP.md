@@ -31,7 +31,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. All tap targets on the app are visibly large enough for outdoor use with dirty hands (48px+)
   4. Form inputs do not trigger iOS Safari auto-zoom (16px+ font enforced)
   5. App is accessible by bookmarking a URL to the iPad home screen — no App Store, no login
-**Plans**: TBD
+**Plans:** 3 plans
+Plans:
+- [ ] 01-01-PLAN.md — Scaffold Next.js 16, Prisma schema, iPad CSS tokens, layout, manifest
+- [ ] 01-02-PLAN.md — Job list, create form, job detail page, server actions
+- [ ] 01-03-PLAN.md — Vitest tests, seed data, iPad visual verification checkpoint
 **UI hint**: yes
 
 ### Phase 2: Photo Capture
@@ -101,7 +105,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation + Jobs | 0/TBD | Not started | - |
+| 1. Foundation + Jobs | 0/3 | Planned | - |
 | 2. Photo Capture | 0/TBD | Not started | - |
 | 3. Form Renderer | 0/TBD | Not started | - |
 | 4. AI Form Generation | 0/TBD | Not started | - |
