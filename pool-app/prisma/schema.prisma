@@ -1,8 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
   provider = "prisma-client"
   output   = "../src/generated/prisma"
@@ -10,4 +5,27 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+}
+
+enum JobStatus {
+  DRAFT
+  SUBMITTED
+}
+
+model Job {
+  id          String    @id @default(cuid())
+  name        String?
+  jobNumber   String?   @map("job_number")
+  status      JobStatus @default(DRAFT)
+  submittedBy String?   @map("submitted_by")
+  submittedAt DateTime? @map("submitted_at") @db.Timestamptz(6)
+
+  photos   Json  @default("[]")
+  formData Json? @map("form_data")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("jobs")
+  @@index([status, createdAt(sort: Desc)])
 }

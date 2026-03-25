@@ -48,6 +48,25 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+@theme {
+  /* iPad field-use touch targets */
+  --spacing-touch: 48px;
+  --spacing-touch-lg: 56px;
+  --spacing-touch-gap: 8px;
+
+  /* Typography - prevents iOS Safari zoom */
+  --font-size-input: 16px;
+  --font-size-body: 18px;
+  --font-size-heading: 24px;
+
+  /* High contrast colors for outdoor sunlight */
+  --color-text-primary: oklch(0.141 0.005 285.82);
+  --color-text-secondary: oklch(0.274 0.006 286.03);
+  --color-bg-primary: oklch(1 0 0);
+  --color-bg-secondary: oklch(0.985 0.002 247.84);
+  --color-border: oklch(0.871 0.006 286.29);
+}
+
 :root {
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
@@ -127,4 +146,11 @@
   html {
     @apply font-sans;
   }
+}
+
+/* Prevent iOS Safari zoom on input focus */
+input,
+select,
+textarea {
+  font-size: max(16px, 1em);
 }
