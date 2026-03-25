@@ -9,9 +9,9 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Jobs
 
-- [ ] **JOBS-01**: Worker can create a new job with a name and/or job number
-- [ ] **JOBS-02**: Worker can select an existing job from a list
-- [ ] **JOBS-03**: Worker can see job history with submission status (draft/submitted)
+- [x] **JOBS-01**: Worker can create a new job with a name and/or job number
+- [x] **JOBS-02**: Worker can select an existing job from a list
+- [x] **JOBS-03**: Worker can see job history with submission status (draft/submitted)
 - [x] **JOBS-04**: Each job stores associated photos, form data, and metadata
 
 ### Photos
@@ -92,9 +92,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| JOBS-01 | Phase 1 | Pending |
-| JOBS-02 | Phase 1 | Pending |
-| JOBS-03 | Phase 1 | Pending |
+| JOBS-01 | Phase 1 | Complete |
+| JOBS-02 | Phase 1 | Complete |
+| JOBS-03 | Phase 1 | Complete |
 | JOBS-04 | Phase 1 | Complete |
 | IPAD-01 | Phase 1 | Complete |
 | IPAD-02 | Phase 1 | Complete |
