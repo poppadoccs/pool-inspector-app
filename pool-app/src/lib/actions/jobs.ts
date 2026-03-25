@@ -5,9 +5,12 @@ import { createJobSchema } from "@/lib/validations/job";
 import { revalidatePath } from "next/cache";
 
 export async function createJob(prevState: unknown, formData: FormData) {
+  const rawName = formData.get("name");
+  const rawJobNumber = formData.get("jobNumber");
+
   const parsed = createJobSchema.safeParse({
-    name: formData.get("name") as string | null,
-    jobNumber: formData.get("jobNumber") as string | null,
+    name: typeof rawName === "string" && rawName.trim() ? rawName.trim() : undefined,
+    jobNumber: typeof rawJobNumber === "string" && rawJobNumber.trim() ? rawJobNumber.trim() : undefined,
   });
 
   if (!parsed.success) {
