@@ -1,7 +1,8 @@
 "use server";
 
-import { generateText, Output } from "ai";
+import { generateText, Output, type LanguageModel } from "ai";
 import { google } from "@ai-sdk/google";
+import { createOpenAI } from "@ai-sdk/openai";
 import { z } from "zod";
 import type { FormField, FieldType } from "@/lib/forms";
 import { getRandomMockTemplate } from "@/lib/mock-form-templates";
@@ -93,11 +94,51 @@ Rules:
 - Do NOT make up fields that aren't on the form
 - Do NOT include page numbers, form numbers, or decorative elements as fields`;
 
-/** Check if we're in mock mode (no API key or explicitly set) */
+// --- Model resolution: Gemini → Ollama → Mock ---
+
+type ResolvedModel = {
+  model: LanguageModel;
+  provider: "gemini" | "ollama";
+} | null;
+
+const OLLAMA_BASE = process.env.OLLAMA_BASE_URL || "http://localhost:11434";
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "gemma3:4b";
+
+async function isOllamaRunning(): Promise<boolean> {
+  try {
+    const res = await fetch(`${OLLAMA_BASE}/api/tags`, {
+      signal: AbortSignal.timeout(2000),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function resolveModel(): Promise<ResolvedModel> {
+  if (process.env.USE_MOCK_FORM_SCAN === "true") return null;
+
+  // 1. Gemini (cloud, fast)
+  if (process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
+    return { model: google("gemini-2.0-flash"), provider: "gemini" };
+  }
+
+  // 2. Ollama (local, free)
+  if (await isOllamaRunning()) {
+    const ollama = createOpenAI({
+      baseURL: `${OLLAMA_BASE}/v1`,
+      apiKey: "ollama",
+    });
+    return { model: ollama(OLLAMA_MODEL), provider: "ollama" };
+  }
+
+  // 3. Mock
+  return null;
+}
+
+/** Exposed so the scan page can show the mock banner */
 export async function isMockMode(): Promise<boolean> {
-  if (process.env.USE_MOCK_FORM_SCAN === "true") return true;
-  if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) return true;
-  return false;
+  return (await resolveModel()) === null;
 }
 
 /** Validate and sanitize extracted fields server-side before returning */
@@ -128,9 +169,11 @@ export async function extractFormTemplate(
   imageBase64: string,
   mimeType: string = "image/jpeg"
 ): Promise<ScanResult> {
+  // Resolve which AI provider to use
+  const resolved = await resolveModel();
+
   // --- MOCK MODE: return realistic sample data, zero cost ---
-  if (await isMockMode()) {
-    // Simulate network delay so the UI loading state is visible
+  if (!resolved) {
     await new Promise((r) => setTimeout(r, 1500));
 
     const mock = getRandomMockTemplate();
@@ -146,10 +189,10 @@ export async function extractFormTemplate(
     };
   }
 
-  // --- REAL AI MODE ---
+  // --- REAL AI MODE (Gemini or Ollama) ---
   try {
     const result = await generateText({
-      model: google("gemini-2.0-flash"),
+      model: resolved.model,
       output: Output.object({ schema: ExtractedTemplateSchema }),
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
