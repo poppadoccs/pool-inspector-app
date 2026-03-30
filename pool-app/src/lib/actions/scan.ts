@@ -1,7 +1,7 @@
 "use server";
 
 import { generateText, Output } from "ai";
-import { openai } from "@ai-sdk/openai";
+import { google } from "@ai-sdk/google";
 import { z } from "zod";
 import type { FormField, FieldType } from "@/lib/forms";
 import { getRandomMockTemplate } from "@/lib/mock-form-templates";
@@ -96,7 +96,7 @@ Rules:
 /** Check if we're in mock mode (no API key or explicitly set) */
 export async function isMockMode(): Promise<boolean> {
   if (process.env.USE_MOCK_FORM_SCAN === "true") return true;
-  if (!process.env.OPENAI_API_KEY) return true;
+  if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) return true;
   return false;
 }
 
@@ -149,7 +149,7 @@ export async function extractFormTemplate(
   // --- REAL AI MODE ---
   try {
     const result = await generateText({
-      model: openai("gpt-4o"),
+      model: google("gemini-2.0-flash"),
       output: Output.object({ schema: ExtractedTemplateSchema }),
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
