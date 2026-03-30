@@ -94,7 +94,7 @@ Rules:
 - Do NOT include page numbers, form numbers, or decorative elements as fields`;
 
 /** Check if we're in mock mode (no API key or explicitly set) */
-export function isMockMode(): boolean {
+export async function isMockMode(): Promise<boolean> {
   if (process.env.USE_MOCK_FORM_SCAN === "true") return true;
   if (!process.env.OPENAI_API_KEY) return true;
   return false;
@@ -129,7 +129,7 @@ export async function extractFormTemplate(
   mimeType: string = "image/jpeg"
 ): Promise<ScanResult> {
   // --- MOCK MODE: return realistic sample data, zero cost ---
-  if (isMockMode()) {
+  if (await isMockMode()) {
     // Simulate network delay so the UI loading state is visible
     await new Promise((r) => setTimeout(r, 1500));
 

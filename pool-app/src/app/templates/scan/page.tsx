@@ -9,8 +9,8 @@ export const metadata: Metadata = {
   title: "Scan Form | Pool Field Forms",
 };
 
-export default function ScanFormPage() {
-  const mockMode = isMockMode();
+export default async function ScanFormPage() {
+  const mockMode = await isMockMode();
 
   return (
     <main className="mx-auto max-w-2xl px-4 pt-6 pb-16">
