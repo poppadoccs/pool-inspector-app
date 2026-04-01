@@ -197,6 +197,41 @@ function norm(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
+/** Check if a normalized (no spaces/symbols) string is only unit/qualifier text */
+function isOnlyUnitText(s: string): boolean {
+  if (!s) return true;
+  return /^(?:ft|sqft|squarefeet|foot|feet|gallons?|gal|inches?|in|meters?|m|yards?|yd|lbs?|lb|pounds?|pound|overall|interior|exterior|minimum|min|maximum|max|approx|approximate|est|estimated|total)*$/.test(s);
+}
+
+/**
+ * Check if a child field is a fake duplicate of its parent.
+ * A child is fake if, after stripping numbers and parentheticals,
+ * it adds no new content beyond units/qualifiers.
+ */
+function isFakeChild(parentLabel: string, childLabel: string): boolean {
+  const stripParens = (s: string) => s.replace(/\(.*?\)/g, "").trim();
+  const parentClean = norm(stripParens(stripNumbering(parentLabel)));
+  const childClean = norm(stripParens(stripNumbering(childLabel)));
+
+  // Child is nothing but unit text (e.g., "ft", "sq ft")
+  if (isOnlyUnitText(childClean)) return true;
+
+  // Exact match after cleanup
+  if (childClean === parentClean) return true;
+
+  // Child is parent + units (e.g., parent "Pool Length", child "Pool Length ft")
+  if (childClean.startsWith(parentClean)) {
+    return isOnlyUnitText(childClean.slice(parentClean.length));
+  }
+
+  // Parent is child + units (child is abbreviated parent)
+  if (parentClean.startsWith(childClean)) {
+    return isOnlyUnitText(parentClean.slice(childClean.length));
+  }
+
+  return false;
+}
+
 // --- Pass 0: Stabilize section assignment ---
 //
 // The AI is inconsistent with sections: sometimes it assigns them,
@@ -228,26 +263,28 @@ function stabilizeSections(fields: RawField[]): SectionStabilizeResult {
 
   // Case 1: AI assigned sections to most fields — trust and fill gaps
   if (ratio > 0.5) {
+    // "General" is not a real section — treat it as empty
+    const isReal = (s?: string) => !!s?.trim() && s.trim().toLowerCase() !== "general";
+
     let lastSection = "";
     const repaired = fields.map((f) => {
-      if (f.section && f.section.trim()) {
-        lastSection = f.section.trim();
-        return f;
+      if (isReal(f.section)) {
+        lastSection = f.section!.trim();
+        return { ...f, section: lastSection };
       }
-      // Fill gap with last-seen section
+      // Fill gap with last-seen real section
       if (lastSection) {
         return { ...f, section: lastSection };
       }
       return f;
     });
 
-    // Backward fill: numbered fields before the first section header
-    // belong to the first real section, not "General". Only truly
-    // generic metadata (Date, Project Name, etc.) stays sectionless.
-    const firstSection = repaired.find(f => f.section && f.section.trim())?.section;
+    // Backward fill: numbered fields before the first real section
+    // belong to that section, not "General"
+    const firstSection = repaired.find(f => isReal(f.section))?.section;
     if (firstSection) {
       for (let i = 0; i < repaired.length; i++) {
-        if (repaired[i].section?.trim()) break;
+        if (isReal(repaired[i].section)) break;
         if (leadingNumber(repaired[i].label) !== null) {
           repaired[i] = { ...repaired[i], section: firstSection };
         }
@@ -300,7 +337,8 @@ function stabilizeSections(fields: RawField[]): SectionStabilizeResult {
     const firstSectionName = detectedSections[0]?.name;
     if (firstSectionName && repaired.length > 0) {
       for (let i = 0; i < repaired.length; i++) {
-        if (repaired[i].section?.trim()) break;
+        const sec = repaired[i].section?.trim()?.toLowerCase();
+        if (sec && sec !== "general") break;
         if (leadingNumber(repaired[i].label) !== null) {
           repaired[i] = { ...repaired[i], section: firstSectionName };
         }
@@ -379,6 +417,12 @@ function cleanLabels(fields: RawField[]): RawField[] {
       if (!label.includes("(")) return "";
       return match;
     });
+
+    // Strip OCR underscores used as blanks: "Name ____" → "Name"
+    label = label.replace(/[_]{2,}/g, "").trim();
+
+    // Strip leading/trailing single underscores
+    label = label.replace(/^_+|_+$/g, "");
 
     // Normalize whitespace
     label = label.trim().replace(/\s+/g, " ");
@@ -492,16 +536,16 @@ function absorbOptionChildren(fields: RawField[]): RawField[] {
   return result;
 }
 
-// --- Pass 2c: Drop bogus single-child splits ---
+// --- Pass 4: Drop fake/unit children + deduplicate siblings ---
 //
-// The AI sometimes invents fake sub-numbered fields:
-//   "10. Length (Overall)" → AI creates "10a. Length (Overall)" as a child
-// This pass detects a parent with ONLY ONE sub-child where the child
-// is essentially the same question, and collapses back to just the parent.
-//
-// Rule: only allow parent→children merge when there are ≥2 distinct children.
+// HARD RULES (from user):
+// 1. Never create child fields from units/help text (ft, sq ft, gallons, overall, etc.)
+// 2. Only keep children that add genuine new content vs the parent
+// 3. Deduplicate siblings with identical normalized labels (e.g., two "Sun Shelf Depth")
+// 4. Valid grouped children (4a/4b/4c Setbacks) survive — they have new content words
+// 5. "Depth" is allowed when tied to a real parent (Sun Shelf Depth)
 
-function dropBogusChildren(fields: RawField[]): RawField[] {
+function dropFakeChildren(fields: RawField[]): RawField[] {
   const result: RawField[] = [];
   let i = 0;
 
@@ -510,42 +554,43 @@ function dropBogusChildren(fields: RawField[]): RawField[] {
     const parentNum = leadingNumber(field.label);
     const parentSub = leadingSub(field.label);
 
-    // Look for a parent (no sub-letter) followed by sub-lettered children
     if (parentNum !== null && parentSub === null) {
-      const parentText = norm(stripNumbering(field.label));
-      const parentSection = field.section || "";
-
-      // Collect consecutive sub-children
-      const children: { field: RawField; idx: number }[] = [];
+      // Collect consecutive sub-children (ignore section — AI is unreliable)
+      const children: RawField[] = [];
       let j = i + 1;
       while (j < fields.length) {
         const child = fields[j];
-        const childNum = leadingNumber(child.label);
-        const childSub = leadingSub(child.label);
         if (
-          childNum === parentNum &&
-          childSub !== null &&
-          (child.section || "") === parentSection
+          leadingNumber(child.label) === parentNum &&
+          leadingSub(child.label) !== null
         ) {
-          children.push({ field: child, idx: j });
+          children.push(child);
           j++;
         } else {
           break;
         }
       }
 
-      if (children.length === 1) {
-        // Only 1 child — check if it's basically the same as the parent
-        const childText = norm(stripNumbering(children[0].field.label));
-        if (childText === parentText || parentText.includes(childText) || childText.includes(parentText)) {
-          // Bogus split: keep parent only, skip the fake child
-          result.push(field);
-          i = j;
-          continue;
-        }
-      }
+      result.push(field); // always keep parent
 
-      // Otherwise: keep parent and all children as-is (merge pass will handle ≥2)
+      if (children.length > 0) {
+        const seenNorms = new Set<string>();
+
+        for (const child of children) {
+          // Drop unit/duplicate children via denylist
+          if (isFakeChild(field.label, child.label)) continue;
+
+          // Deduplicate siblings by normalized stripped label
+          const cn = norm(stripNumbering(child.label));
+          if (seenNorms.has(cn)) continue;
+          seenNorms.add(cn);
+
+          result.push(child);
+        }
+
+        i = j;
+        continue;
+      }
     }
 
     result.push(field);
@@ -561,7 +606,7 @@ function dropBogusChildren(fields: RawField[]): RawField[] {
 //   "1. Total Yard Dimensions" + "1a. Length" + "1b. Width"
 //   → children get contextual labels like "1a. Total Yard Dimensions — Length"
 //
-// A single child is NOT enough to trigger a merge (handled by dropBogusChildren).
+// A single child is NOT enough to trigger a merge (handled by dropFakeChildren).
 
 function mergeCompoundFields(fields: RawField[]): RawField[] {
   const result: RawField[] = [];
@@ -859,8 +904,8 @@ function normalizeExtractedFields(raw: ExtractedTemplate): FormField[] {
   // Run remaining passes
   fields = cleanLabels(fields);                        // 1. strip [ ], trailing colons, truncated parens
   fields = dropSectionHeaderFields(fields, sections);  // 2. remove header dupes
-  fields = absorbOptionChildren(fields);               // 3. absorb option/note children into parent
-  fields = dropBogusChildren(fields);                  // 4. collapse single-child fakes
+  fields = absorbOptionChildren(fields);               // 3. absorb Yes/No/None + instructional text
+  fields = dropFakeChildren(fields);                   // 4. kill unit/dupe children, keep real ones (4a/4b/4c)
   fields = mergeCompoundFields(fields);                // 5. group ≥2 children under parent + dimension collapse
   fields = fixChildSections(fields);                   // 6. ensure children share parent's section
   fields = repairCheckboxes(fields);                   // 7. fix empty checkboxes
