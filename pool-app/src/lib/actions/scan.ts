@@ -162,29 +162,236 @@ export async function isMockMode(): Promise<boolean> {
   return (await resolveModel()) === null;
 }
 
-// --- Validation ---
+// --- Post-extraction normalization pipeline ---
 
-function validateExtractedFields(raw: ExtractedTemplate): FormField[] {
+type RawField = z.infer<typeof ExtractedFieldSchema>;
+
+function normalizeLabel(label: string): string {
+  return label.trim().replace(/\s+/g, " ").slice(0, 200);
+}
+
+function stripNumbering(label: string): string {
+  return label.replace(/^\d+[a-z]?\.\s*/, "").trim();
+}
+
+function labelSimilarity(a: string, b: string): boolean {
+  const na = stripNumbering(a).toLowerCase().replace(/[^a-z0-9]/g, "");
+  const nb = stripNumbering(b).toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (!na || !nb) return false;
+  return na === nb || na.includes(nb) || nb.includes(na);
+}
+
+/**
+ * Pass 1: Drop fields whose label is just a section header repeated.
+ * The AI sometimes emits the section name as a field too.
+ */
+function dropSectionHeaderFields(
+  fields: RawField[],
+  sections: Set<string>
+): RawField[] {
+  return fields.filter((f) => {
+    const label = stripNumbering(f.label).toLowerCase().replace(/[^a-z0-9]/g, "");
+    for (const sec of sections) {
+      const secNorm = sec.toLowerCase().replace(/[^a-z0-9]/g, "");
+      if (label === secNorm) return false;
+      // Also catch "I. SITE LOGISTICS" appearing as a text field
+      const secNoNum = sec.replace(/^[IVXLC]+\.\s*/i, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+      if (label === secNoNum && secNoNum.length > 3) return false;
+    }
+    return true;
+  });
+}
+
+/**
+ * Pass 2: Merge compound fields.
+ * If we see "1. Total Yard Dimensions" followed by "1a. Length" and "1b. Width",
+ * the parent becomes a section/group label and children keep contextual labels.
+ * But if we see "1. Total Yard Dimensions" as a standalone text field with no
+ * numbered children, keep it as-is.
+ */
+function mergeCompoundFields(fields: RawField[]): RawField[] {
+  const result: RawField[] = [];
+
+  for (let i = 0; i < fields.length; i++) {
+    const field = fields[i];
+    const label = field.label.trim();
+
+    // Check if next fields are lettered sub-parts (1a, 1b, etc.)
+    const numMatch = label.match(/^(\d+)\.\s/);
+    if (numMatch) {
+      const parentNum = numMatch[1];
+      const parentText = stripNumbering(label);
+
+      // Look ahead for children like "1a.", "1b.", etc.
+      const children: RawField[] = [];
+      let j = i + 1;
+      while (j < fields.length) {
+        const childLabel = fields[j].label.trim();
+        const childMatch = childLabel.match(
+          new RegExp(`^${parentNum}[a-z]\\.\\s`)
+        );
+        if (childMatch) {
+          children.push(fields[j]);
+          j++;
+        } else {
+          break;
+        }
+      }
+
+      if (children.length > 0) {
+        // Parent becomes a non-field marker — push children with contextual labels
+        for (const child of children) {
+          const childText = stripNumbering(child.label);
+          // If child label doesn't already contain parent context, prepend it
+          const hasContext = labelSimilarity(childText, parentText) ||
+            childText.toLowerCase().includes(parentText.toLowerCase().split(" ")[0]);
+          const contextLabel = hasContext
+            ? child.label
+            : `${child.label.match(/^\d+[a-z]\./)?.[0] || ""} ${parentText} — ${childText}`.trim();
+
+          result.push({
+            ...child,
+            label: contextLabel,
+            // Preserve parent's section
+            section: child.section || field.section,
+          });
+        }
+        i = j - 1; // skip children in outer loop
+        continue;
+      }
+    }
+
+    result.push(field);
+  }
+
+  return result;
+}
+
+/**
+ * Pass 3: Preserve notes/examples as placeholder text.
+ * If a field has parenthetical hints like "(e.g., 32 ft)" or "ex: concrete",
+ * move them to the placeholder field.
+ */
+function extractHelperText(fields: RawField[]): RawField[] {
+  return fields.map((f) => {
+    const label = f.label;
+    // Match (e.g., ...), (ex: ...), (example: ...), (hint: ...)
+    const hintMatch = label.match(
+      /\s*\((?:e\.?g\.?|ex|example|hint|note)[:\s]*([^)]+)\)\s*$/i
+    );
+    if (hintMatch && !f.placeholder) {
+      return {
+        ...f,
+        label: label.slice(0, hintMatch.index).trim(),
+        placeholder: hintMatch[1].trim(),
+      };
+    }
+    return f;
+  });
+}
+
+/**
+ * Pass 4: Ensure numbered fields stay in order.
+ * Extract leading number and sort within each section.
+ */
+function sortByNumberWithinSection(fields: RawField[]): RawField[] {
+  // Group by section preserving section order
+  const sectionOrder: string[] = [];
+  const groups = new Map<string, RawField[]>();
+
+  for (const f of fields) {
+    const sec = f.section || "__none__";
+    if (!groups.has(sec)) {
+      sectionOrder.push(sec);
+      groups.set(sec, []);
+    }
+    groups.get(sec)!.push(f);
+  }
+
+  // Within each section, stable-sort by leading number
+  const result: RawField[] = [];
+  for (const sec of sectionOrder) {
+    const group = groups.get(sec)!;
+    group.sort((a, b) => {
+      const numA = a.label.match(/^(\d+)/);
+      const numB = b.label.match(/^(\d+)/);
+      if (numA && numB) {
+        const diff = parseInt(numA[1]) - parseInt(numB[1]);
+        if (diff !== 0) return diff;
+        // Same number — sort by sub-letter (1a before 1b)
+        const subA = a.label.match(/^\d+([a-z])/);
+        const subB = b.label.match(/^\d+([a-z])/);
+        if (subA && subB) return subA[1].localeCompare(subB[1]);
+        if (subA) return 1; // parent before child
+        if (subB) return -1;
+      }
+      return 0; // preserve original order for unnumbered fields
+    });
+    result.push(...group);
+  }
+
+  return result;
+}
+
+/**
+ * Pass 5: Final sanitization — dedupe IDs, validate types, assign order.
+ */
+function sanitizeFields(fields: RawField[]): FormField[] {
   const validTypes = new Set(FIELD_TYPE_VALUES);
+  const seenIds = new Set<string>();
 
-  return raw.fields
+  return fields
     .filter((f) => f.label && typeof f.label === "string" && f.label.trim())
-    .map((f, index) => ({
-      id:
+    .map((f, index) => {
+      let id =
         f.label
           .toLowerCase()
           .replace(/[^a-z0-9]+/g, "_")
-          .replace(/^_|_$/g, "") || `field_${index}`,
-      label: f.label.trim().slice(0, 200),
-      type: validTypes.has(f.type) ? f.type : "text",
-      required: typeof f.required === "boolean" ? f.required : false,
-      placeholder: f.placeholder?.slice(0, 200),
-      options: Array.isArray(f.options)
-        ? f.options.filter((o) => typeof o === "string").map((o) => o.slice(0, 100))
-        : undefined,
-      section: f.section?.slice(0, 100),
-      order: index,
-    }));
+          .replace(/^_|_$/g, "") || `field_${index}`;
+
+      let counter = 1;
+      const baseId = id;
+      while (seenIds.has(id)) {
+        id = `${baseId}_${counter++}`;
+      }
+      seenIds.add(id);
+
+      return {
+        id,
+        label: normalizeLabel(f.label),
+        type: validTypes.has(f.type) ? f.type : "text",
+        required: typeof f.required === "boolean" ? f.required : false,
+        placeholder: f.placeholder?.trim().slice(0, 200),
+        options: Array.isArray(f.options)
+          ? f.options
+              .filter((o) => typeof o === "string" && o.trim())
+              .map((o) => o.trim().slice(0, 100))
+          : undefined,
+        section: f.section?.trim().slice(0, 100),
+        order: index,
+      };
+    });
+}
+
+/**
+ * Full normalization pipeline — runs all repair passes in order.
+ */
+function normalizeExtractedFields(raw: ExtractedTemplate): FormField[] {
+  let fields = raw.fields;
+
+  // Collect known section names
+  const sections = new Set<string>();
+  for (const f of fields) {
+    if (f.section) sections.add(f.section);
+  }
+
+  // Pipeline
+  fields = dropSectionHeaderFields(fields, sections);
+  fields = mergeCompoundFields(fields);
+  fields = extractHelperText(fields);
+  fields = sortByNumberWithinSection(fields);
+
+  return sanitizeFields(fields);
 }
 
 // --- Core extraction (single image, with timeout) ---
@@ -324,7 +531,7 @@ export async function extractFormTemplate(
     };
   }
 
-  const fields = validateExtractedFields(extracted);
+  const fields = normalizeExtractedFields(extracted);
   if (fields.length === 0) {
     return {
       success: false,
@@ -370,7 +577,7 @@ export async function extractSinglePage(
     return { success: false, fields: [], error: "No fields found on this page" };
   }
 
-  return { success: true, fields: validateExtractedFields(extracted) };
+  return { success: true, fields: normalizeExtractedFields(extracted) };
 }
 
 // --- Public: PDF extraction ---
@@ -413,7 +620,7 @@ export async function extractFormFromPdf(
     };
   }
 
-  const fields = validateExtractedFields(extracted);
+  const fields = normalizeExtractedFields(extracted);
   if (fields.length === 0) {
     return {
       success: false,
