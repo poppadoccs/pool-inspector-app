@@ -453,8 +453,24 @@ function mergeCompoundFields(fields: RawField[]): RawField[] {
         break;
       }
 
-      // REQUIRE ≥2 children to consume the parent
+      // REQUIRE ≥2 children to trigger merge
       if (children.length >= 2) {
+        // Decide: consume the parent or keep it?
+        // If the parent is itself answerable (checkbox, radio, select,
+        // or has options), keep it alongside children.
+        // If parent is a pure heading/grouping label (text with no
+        // options, no placeholder), consume it — it adds no input value.
+        const ANSWERABLE_TYPES = new Set(["checkbox", "radio", "select"]);
+        const parentIsAnswerable =
+          ANSWERABLE_TYPES.has(field.type) ||
+          (Array.isArray(field.options) && field.options.length > 0);
+
+        if (parentIsAnswerable) {
+          // Keep parent as its own field, emit children after it
+          result.push(field);
+        }
+        // else: parent consumed (not emitted)
+
         for (const child of children) {
           const childText = stripNumbering(child.label);
           const existingSub = leadingSub(child.label)!;
