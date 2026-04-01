@@ -407,11 +407,24 @@ function absorbOptionChildren(fields: RawField[]): RawField[] {
         const realChildren: RawField[] = [];
         const absorbedOptions: string[] = [];
 
+        // Measurement/dimension terms are sub-fields, never options
+        const MEASUREMENT_WORDS = new Set([
+          "length", "width", "height", "depth", "diameter",
+          "area", "volume", "weight", "distance", "size",
+        ]);
+
         for (const child of children) {
           const childText = stripNumbering(child.label);
+          const bareText = childText.replace(/\(.*\)/, "").trim().toLowerCase();
+
+          // Never absorb measurement sub-fields
+          if (MEASUREMENT_WORDS.has(bareText)) {
+            realChildren.push(child);
+            continue;
+          }
 
           // Pattern: single word like "None", "Yes", "No", "Raised", "Attached"
-          const isSingleWord = !/\s/.test(childText.replace(/\(.*\)/, "").trim());
+          const isSingleWord = !/\s/.test(bareText);
 
           // Pattern: starts with Yes/No/None + optional parenthetical
           const isYesNoNone = /^(yes|no|none|n\/a)\b/i.test(childText);
@@ -421,7 +434,7 @@ function absorbOptionChildren(fields: RawField[]): RawField[] {
 
           // Pattern: looks like an option value for the parent
           // (short text, no question mark, no blank indicator)
-          const isOptionLike = isSingleWord && childText.length < 30;
+          const isOptionLike = isSingleWord && bareText.length < 30;
 
           if (isYesNoNone || isInstruction || isOptionLike) {
             // This is an option or note — absorb into parent
@@ -546,10 +559,9 @@ function mergeCompoundFields(fields: RawField[]): RawField[] {
         const child = fields[j];
         const childNum = leadingNumber(child.label);
         const childSub = leadingSub(child.label);
-        const sameSection =
-          (child.section || "") === (parentSection || "");
 
-        if (childNum === parentNum && childSub !== null && sameSection) {
+        // Match on number only — section assignment from AI is unreliable
+        if (childNum === parentNum && childSub !== null) {
           children.push(child);
           j++;
           continue;
@@ -559,6 +571,23 @@ function mergeCompoundFields(fields: RawField[]): RawField[] {
 
       // REQUIRE ≥2 children to trigger merge
       if (children.length >= 2) {
+        // Special case: dimension pair (Length + Width) → single field
+        if (children.length === 2) {
+          const texts = children.map(c => stripNumbering(c.label).toLowerCase());
+          const hasLength = texts.some(t => /\blength\b/.test(t));
+          const hasWidth = texts.some(t => /\bwidth\b/.test(t));
+          if (hasLength && hasWidth) {
+            result.push({
+              ...field,
+              type: "text" as const,
+              placeholder: "__ ft x __ ft",
+              section: parentSection,
+            });
+            i = j;
+            continue;
+          }
+        }
+
         // Decide: consume the parent or keep it?
         // If the parent is itself answerable (checkbox, radio, select,
         // or has options), keep it alongside children.
@@ -590,7 +619,7 @@ function mergeCompoundFields(fields: RawField[]): RawField[] {
           result.push({
             ...child,
             label: contextLabel,
-            section: child.section || parentSection,
+            section: parentSection, // Force parent section — AI assignment unreliable
           });
         }
         i = j;
@@ -716,6 +745,35 @@ function fixNumbering(fields: RawField[]): RawField[] {
   return result;
 }
 
+// --- Pass 5b: Fix child section assignment ---
+//
+// AI sometimes assigns children to a different section than their parent.
+// This ensures every sub-lettered child (e.g., "20a.") inherits the section
+// of its parent (e.g., "20.") so fixNumbering sorts them together.
+
+function fixChildSections(fields: RawField[]): RawField[] {
+  const parentSections = new Map<number, string>();
+  for (const f of fields) {
+    const num = leadingNumber(f.label);
+    const sub = leadingSub(f.label);
+    if (num !== null && sub === null && f.section) {
+      parentSections.set(num, f.section);
+    }
+  }
+
+  return fields.map(f => {
+    const num = leadingNumber(f.label);
+    const sub = leadingSub(f.label);
+    if (num !== null && sub !== null) {
+      const parentSection = parentSections.get(num);
+      if (parentSection && f.section !== parentSection) {
+        return { ...f, section: parentSection };
+      }
+    }
+    return f;
+  });
+}
+
 // --- Pass 6: Final sanitization — dedupe IDs, validate types, assign order ---
 
 function sanitizeFields(fields: RawField[]): FormField[] {
@@ -779,10 +837,11 @@ function normalizeExtractedFields(raw: ExtractedTemplate): FormField[] {
   fields = dropSectionHeaderFields(fields, sections);  // 2. remove header dupes
   fields = absorbOptionChildren(fields);               // 3. absorb option/note children into parent
   fields = dropBogusChildren(fields);                  // 4. collapse single-child fakes
-  fields = mergeCompoundFields(fields);                // 5. group ≥2 children under parent
-  fields = repairCheckboxes(fields);                   // 6. fix empty checkboxes
-  fields = extractHelperText(fields);                  // 7. notes → placeholders
-  fields = fixNumbering(fields);                       // 8. sort by number (children under parent)
+  fields = mergeCompoundFields(fields);                // 5. group ≥2 children under parent + dimension collapse
+  fields = fixChildSections(fields);                   // 6. ensure children share parent's section
+  fields = repairCheckboxes(fields);                   // 7. fix empty checkboxes
+  fields = extractHelperText(fields);                  // 8. notes → placeholders
+  fields = fixNumbering(fields);                       // 9. sort by number (children under parent)
 
   const result = sanitizeFields(fields);               // 6. dedupe + validate
 
