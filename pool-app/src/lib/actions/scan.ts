@@ -18,6 +18,7 @@ const FIELD_TYPE_VALUES: [FieldType, ...FieldType[]] = [
   "phone",
   "email",
   "signature",
+  "photo",
 ];
 
 const ExtractedFieldSchema = z.object({
@@ -106,6 +107,7 @@ FIELD TYPE RULES:
 - Dropdown or select-one from a list → type: select (include all options)
 - Large blank area, multi-line, or "Notes"/"Comments" → type: textarea
 - Signature line → type: signature
+- "Picture of", "Photo of", "Additional Photos" or any photo/image upload placeholder → type: photo
 - Everything else → type: text
 - Mark fields as required if they have asterisks (*), "required" text, or are clearly mandatory
 
@@ -230,6 +232,105 @@ function isFakeChild(parentLabel: string, childLabel: string): boolean {
   }
 
   return false;
+}
+
+// --- Pre-pass A: Footer / watermark filter ---
+//
+// Contact blocks repeated on every page of a PDF get extracted as fields.
+// Detect and remove them by looking for:
+//   1. Phone number patterns  (407-223-5379, (555) 123-4567, etc.)
+//   2. Email addresses
+//   3. License / cert numbers  ("License CPC1459862")
+//   4. Labels that appear ≥3 times (duplicate watermarks)
+//   5. Bare person names that repeat (just 1-3 words, no question structure)
+
+function dropFooterWatermarks(fields: RawField[]): RawField[] {
+  // Count label occurrences to detect repeated watermarks
+  const labelCounts = new Map<string, number>();
+  for (const f of fields) {
+    const key = norm(f.label);
+    labelCounts.set(key, (labelCounts.get(key) || 0) + 1);
+  }
+
+  const PHONE_RE = /^\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}$/;
+  const EMAIL_RE = /@[a-z0-9.-]+\.[a-z]{2,}/i;
+  const PHONE_LABEL_RE = /^(?:phone|ph|tel|fax)\s*[:.]?\s*/i;
+
+  // Standalone license/cert line: "License CPC1459862" — but NOT a question
+  // like "Contractor License #" that asks for user input.
+  // Must be: the word "license/cert" + an alphanumeric code, no question words.
+  const LICENSE_STANDALONE_RE = /^(?:licen[sc]e|cert(?:ification)?)\s+[A-Z0-9]{4,}/i;
+
+  return fields.filter((f) => {
+    const label = f.label.trim();
+    const stripped = label.replace(PHONE_LABEL_RE, "");
+
+    // Kill phone numbers (with or without "Phone:" / "Tel:" prefix)
+    if (PHONE_RE.test(stripped)) return false;
+
+    // Kill standalone email addresses (not "Email:" input fields)
+    if (EMAIL_RE.test(label) && leadingNumber(label) === null) return false;
+
+    // Kill standalone license lines (not numbered questions about licenses)
+    if (LICENSE_STANDALONE_RE.test(label) && leadingNumber(label) === null) return false;
+
+    // Kill labels that repeat ≥3 times with no question number (watermark text)
+    if (leadingNumber(label) === null && labelCounts.get(norm(label))! >= 3) return false;
+
+    return true;
+  });
+}
+
+// --- Pre-pass B: Strict-flat detection + photo type assignment ---
+//
+// Flat forms (like the 108-question Pool/Spa Inspection) have zero
+// real sub-lettered fields.  If sub-lettered fields are < 10% of total,
+// the form is flat → kill ALL sub-lettered children unconditionally.
+//
+// Also detects photo placeholder fields by label keywords and assigns
+// type: "photo".
+
+const PHOTO_KEYWORDS = /\b(picture|photo|image|pic)\b/i;
+
+function flattenAndDetectPhotos(fields: RawField[]): RawField[] {
+  const total = fields.length;
+  const subLettered = fields.filter((f) => leadingSub(f.label) !== null).length;
+
+  // Flat forms have very few sub-lettered fields relative to total.
+  // Instead of blanket-killing, use isFakeChild for each sub-lettered
+  // field vs its parent — only kills confirmed fakes.
+  const isFlat = total > 0 && subLettered / total < 0.1;
+
+  // Build parent map for fake-child checking in flat mode
+  const parentLabels = new Map<number, string>();
+  if (isFlat) {
+    for (const f of fields) {
+      const num = leadingNumber(f.label);
+      const sub = leadingSub(f.label);
+      if (num !== null && sub === null) {
+        parentLabels.set(num, f.label);
+      }
+    }
+  }
+
+  return fields
+    .filter((f) => {
+      if (isFlat && leadingSub(f.label) !== null) {
+        const num = leadingNumber(f.label);
+        const parentLabel = num !== null ? parentLabels.get(num) : undefined;
+        // Only kill if parent exists and child is a confirmed fake
+        if (parentLabel && isFakeChild(parentLabel, f.label)) return false;
+        // Keep children that add genuine new content
+      }
+      return true;
+    })
+    .map((f) => {
+      // Detect photo placeholders by label keywords
+      if (PHOTO_KEYWORDS.test(stripNumbering(f.label))) {
+        return { ...f, type: "photo" as const };
+      }
+      return f;
+    });
 }
 
 // --- Pass 0: Stabilize section assignment ---
@@ -387,7 +488,11 @@ function dropSectionHeaderFields(
   return fields.filter((f) => {
     const labelNorm = norm(stripNumbering(f.label));
     if (!labelNorm) return false;
-    if (sectionNorms.has(labelNorm)) {
+
+    // Also try stripping Roman numeral prefix — AI may store section without it
+    const romanStripped = norm(f.label.replace(/^[IVXLC]+\.\s*/i, ""));
+
+    if (sectionNorms.has(labelNorm) || (romanStripped && sectionNorms.has(romanStripped))) {
       // Numbered fields like "4. Setbacks" are real questions even if
       // their label matches a section name — keep them
       return leadingNumber(f.label) !== null;
@@ -417,6 +522,9 @@ function cleanLabels(fields: RawField[]): RawField[] {
       if (!label.includes("(")) return "";
       return match;
     });
+
+    // Collapse duplicated punctuation (.. → ., :: → :, etc.)
+    label = label.replace(/([.?!:;,])\1+/g, "$1");
 
     // Strip OCR underscores used as blanks: "Name ____" → "Name"
     label = label.replace(/[_]{2,}/g, "").trim();
@@ -574,6 +682,16 @@ function dropFakeChildren(fields: RawField[]): RawField[] {
       result.push(field); // always keep parent
 
       if (children.length > 0) {
+        // Single-child rule: keep only if the child adds genuinely new
+        // content vs the parent.  Fake duplicates (10a, 11a, …) get dropped.
+        if (children.length === 1) {
+          if (!isFakeChild(field.label, children[0].label)) {
+            result.push(children[0]);
+          }
+          i = j;
+          continue;
+        }
+
         const seenNorms = new Set<string>();
 
         for (const child of children) {
@@ -591,6 +709,10 @@ function dropFakeChildren(fields: RawField[]): RawField[] {
         i = j;
         continue;
       }
+
+      // No children — parent already pushed, just advance
+      i++;
+      continue;
     }
 
     result.push(field);
@@ -638,6 +760,31 @@ function mergeCompoundFields(fields: RawField[]): RawField[] {
         break;
       }
 
+      // Dimension parent (e.g., "Total Yard Dimensions") with ≤1 children
+      // — duplicate child was already killed by dropFakeChildren, but the
+      //   parent still needs its dimension placeholder.
+      // Guard: only fires on non-answerable text parents (not checkboxes,
+      // radios, or questions that merely mention "dimensions").
+      {
+        const ANSWERABLE = new Set(["checkbox", "radio", "select"]);
+        const isDimensionHeading =
+          /\bdimensions?\b/i.test(parentText) &&
+          !ANSWERABLE.has(field.type) &&
+          !(Array.isArray(field.options) && field.options.length > 0) &&
+          children.length < 2;
+
+        if (isDimensionHeading) {
+          result.push({
+            ...field,
+            type: "text" as const,
+            placeholder: "Length ft x Width ft",
+            section: parentSection,
+          });
+          i = j;
+          continue;
+        }
+      }
+
       // REQUIRE ≥2 children to trigger merge
       if (children.length >= 2) {
         // Special case: dimension pair (Length + Width) → single field
@@ -649,7 +796,7 @@ function mergeCompoundFields(fields: RawField[]): RawField[] {
             result.push({
               ...field,
               type: "text" as const,
-              placeholder: "__ ft x __ ft",
+              placeholder: "Length ft x Width ft",
               section: parentSection,
             });
             i = j;
@@ -925,9 +1072,16 @@ function sanitizeFields(fields: RawField[]): FormField[] {
 
 // --- Full pipeline ---
 
-/** Conservative fallback — only sanitize, no structural changes */
+/** Conservative fallback — only sanitize, no structural changes.
+ *  Uses raw AI fields (not pre-processed) to preserve the safety net,
+ *  but still runs photo detection so photo types survive. */
 function conservativeNormalize(raw: ExtractedTemplate): FormField[] {
-  let fields = raw.fields;
+  let fields: RawField[] = raw.fields.map((f) => {
+    if (PHOTO_KEYWORDS.test(stripNumbering(f.label))) {
+      return { ...f, type: "photo" as const };
+    }
+    return f;
+  });
   fields = repairCheckboxes(fields);
   fields = extractHelperText(fields);
   return sanitizeFields(fields);
@@ -938,11 +1092,17 @@ const BLOAT_THRESHOLD = 0.30; // 30% — if pipeline adds more than this, fallba
 function normalizeExtractedFields(raw: ExtractedTemplate): FormField[] {
   const rawCount = raw.fields.length;
 
-  // Pass 0: Stabilize sections first
-  const { fields: sectionStable, sections } = stabilizeSections(raw.fields);
-  let fields = sectionStable;
+  // Pre-passes: run before structural analysis
+  const preProcessed: RawField[] = flattenAndDetectPhotos(     // B. kill fake sub-letters + tag photos
+    dropFooterWatermarks(raw.fields),                          // A. kill repeated contact blocks
+  );
+  let fields = preProcessed;
 
-  // Run remaining passes
+  // Pass 0: Stabilize sections
+  const { fields: sectionStable, sections } = stabilizeSections(fields);
+  fields = sectionStable;
+
+  // Structural passes
   fields = cleanLabels(fields);                        // 1. strip [ ], trailing colons, truncated parens
   fields = dropSectionHeaderFields(fields, sections);  // 2. remove header dupes
   fields = absorbOptionChildren(fields);               // 3. absorb Yes/No/None + instructional text
@@ -955,6 +1115,12 @@ function normalizeExtractedFields(raw: ExtractedTemplate): FormField[] {
   fields = fixNumbering(fields);                       // 10. sort by number (children under parent)
 
   const result = sanitizeFields(fields);               // 6. dedupe + validate
+
+  // Debug: dump final normalized labels so runtime output is visible
+  console.log(
+    `[scan] Normalized ${rawCount} raw → ${result.length} fields:`,
+    result.map((f) => `${f.label}${f.placeholder ? ` [${f.placeholder}]` : ""}`),
+  );
 
   // Bloat guard
   if (rawCount > 0 && result.length > rawCount * (1 + BLOAT_THRESHOLD)) {

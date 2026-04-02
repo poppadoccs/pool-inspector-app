@@ -43,8 +43,9 @@ model Job {
   name        String?
   jobNumber   String?   @map("job_number")
   status      JobStatus @default(DRAFT)
-  submittedBy String?   @map("submitted_by")
-  submittedAt DateTime? @map("submitted_at") @db.Timestamptz(6)
+  submittedBy      String?   @map("submitted_by")
+  submittedAt      DateTime? @map("submitted_at") @db.Timestamptz(6)
+  workerSignature  String?   @map("worker_signature")
 
   photos   Json  @default("[]")
   formData Json? @map("form_data")

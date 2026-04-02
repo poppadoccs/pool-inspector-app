@@ -36,7 +36,10 @@ export function CreateJobForm({
   if (!isOpen) {
     return (
       <Button
-        onClick={() => setIsOpen(true)}
+        onClick={() => {
+          console.log("[create-job] New Job button tapped");
+          setIsOpen(true);
+        }}
         className="mt-4 w-full min-h-[56px] text-lg"
       >
         <Plus className="mr-2 size-5" />

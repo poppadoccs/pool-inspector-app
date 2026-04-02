@@ -58,7 +58,7 @@ export default async function JobDetailPage({ params }: Props) {
     : DEFAULT_TEMPLATE;
 
   return (
-    <main className="mx-auto max-w-2xl px-4 pt-6 pb-16">
+    <main className="mx-auto max-w-2xl px-4 pt-6 pb-24">
       <Link href="/">
         <Button
           variant="ghost"

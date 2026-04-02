@@ -14,6 +14,7 @@ import {
   Trash2,
   KeyRound,
   Mail,
+  FileDown,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -23,6 +24,7 @@ import {
   archiveJob,
   deleteJob,
 } from "@/lib/actions/settings";
+import { generateJobPdf } from "@/lib/actions/generate-pdf";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -42,6 +44,7 @@ type ManagedJob = {
   status: string;
   submittedBy: string | null;
   submittedAt: Date | null;
+  workerSignature: string | null;
 };
 
 function statusLabel(status: string) {
@@ -247,7 +250,54 @@ export function AdminSettings({
                       )}
                     </div>
 
+                    {/* Signature preview for submitted jobs */}
+                    {job.workerSignature && job.status === "SUBMITTED" && (
+                      <div className="mt-2 rounded border border-zinc-100 bg-zinc-50 p-2">
+                        <p className="text-xs text-zinc-500 mb-1">Signature</p>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={job.workerSignature}
+                          alt={`Signature by ${job.submittedBy || "worker"}`}
+                          className="h-12 w-auto"
+                        />
+                      </div>
+                    )}
+
                     <div className="mt-2 flex gap-2">
+                      {job.status === "SUBMITTED" && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="min-h-[40px] flex-1"
+                          disabled={isBusy}
+                          onClick={async () => {
+                            setBusyJob(job.id);
+                            const result = await generateJobPdf(job.id);
+                            setBusyJob(null);
+                            if (result.success && result.data) {
+                              // Convert data URI to Blob for reliable Safari download
+                              const byteString = atob(result.data.split(",")[1]);
+                              const ab = new ArrayBuffer(byteString.length);
+                              const ia = new Uint8Array(ab);
+                              for (let i = 0; i < byteString.length; i++) {
+                                ia[i] = byteString.charCodeAt(i);
+                              }
+                              const blob = new Blob([ab], { type: "application/pdf" });
+                              const url = URL.createObjectURL(blob);
+                              const link = document.createElement("a");
+                              link.href = url;
+                              link.download = `${job.name || job.jobNumber || job.id}-report.pdf`;
+                              link.click();
+                              URL.revokeObjectURL(url);
+                            } else {
+                              toast.error(result.error || "PDF generation failed");
+                            }
+                          }}
+                        >
+                          <FileDown className="size-4 mr-1.5" />
+                          Download PDF
+                        </Button>
+                      )}
                       {canArchive && (
                         <Button
                           variant="outline"

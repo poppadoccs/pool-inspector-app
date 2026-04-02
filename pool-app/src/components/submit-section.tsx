@@ -16,10 +16,12 @@ import { Loader2, Send, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import { submitJob } from "@/lib/actions/submit";
 import { clearDraft } from "@/components/job-form";
+import { SignaturePad } from "@/components/signature-pad";
 
 export function SubmitSection({ jobId }: { jobId: string }) {
   const router = useRouter();
   const [name, setName] = useState("");
+  const [signatureData, setSignatureData] = useState("");
   const [showConfirm, setShowConfirm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -29,7 +31,7 @@ export function SubmitSection({ jobId }: { jobId: string }) {
     setSubmitting(true);
     setError(null);
 
-    const result = await submitJob(jobId, name.trim());
+    const result = await submitJob(jobId, name.trim(), signatureData || undefined);
 
     if (result.success) {
       clearDraft(jobId);
@@ -73,6 +75,14 @@ export function SubmitSection({ jobId }: { jobId: string }) {
         />
       </div>
 
+      <div className="space-y-1.5">
+        <Label className="text-base">
+          Signature <span className="text-red-500">*</span>
+        </Label>
+        <p className="text-sm text-zinc-500">Sign with your finger below</p>
+        <SignaturePad onEnd={setSignatureData} />
+      </div>
+
       {error && (
         <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-base text-red-700">
           {error}
@@ -82,7 +92,7 @@ export function SubmitSection({ jobId }: { jobId: string }) {
       <Button
         type="button"
         className="w-full min-h-[56px] gap-2 text-lg font-semibold"
-        disabled={!name.trim() || submitting}
+        disabled={!name.trim() || !signatureData || submitting}
         onClick={() => setShowConfirm(true)}
       >
         <Send className="size-5" />

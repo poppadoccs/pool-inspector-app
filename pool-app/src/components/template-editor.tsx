@@ -60,6 +60,7 @@ const TYPE_LABELS: Record<FieldType, string> = {
   phone: "Phone number",
   email: "Email address",
   signature: "Signature",
+  photo: "Photo",
 };
 
 type TemplateEditorProps = {

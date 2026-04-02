@@ -21,7 +21,7 @@ import {
   SelectItem,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Check, Loader2 } from "lucide-react";
+import { Camera, Check, Loader2 } from "lucide-react";
 import {
   buildFormSchema,
   getDefaultValues,
@@ -30,6 +30,7 @@ import {
   type FormData,
 } from "@/lib/forms";
 import { saveFormData } from "@/lib/actions/forms";
+import { StickyFormNav } from "@/components/sticky-form-nav";
 
 // --- localStorage draft helpers ---
 
@@ -89,6 +90,7 @@ export function JobForm({
     control,
     watch,
     reset,
+    getValues,
     formState: { errors },
   } = useForm({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -160,17 +162,37 @@ export function JobForm({
         </div>
       )}
 
-      {/* Fields */}
-      {template.fields.map((field) => (
-        <FieldRenderer
-          key={field.id}
-          field={field}
-          register={register}
-          control={control}
-          errors={errors}
-          disabled={disabled}
-        />
-      ))}
+      {/* Fields — with section headers for navigation */}
+      {template.fields.map((field, i) => {
+        const prevSection = i > 0 ? template.fields[i - 1].section : undefined;
+        const showSection = field.section && field.section !== prevSection;
+
+        return (
+          <div key={field.id}>
+            {showSection && (
+              <h3
+                data-section={field.section}
+                className="pt-4 pb-1 text-sm font-semibold uppercase tracking-wide text-zinc-400"
+              >
+                {field.section}
+              </h3>
+            )}
+            <FieldRenderer
+              field={field}
+              register={register}
+              control={control}
+              errors={errors}
+              disabled={disabled}
+            />
+          </div>
+        );
+      })}
+
+      <StickyFormNav
+        jobId={jobId}
+        getValues={() => getValues() as FormData}
+        disabled={disabled}
+      />
     </div>
   );
 }
@@ -272,18 +294,26 @@ function FieldRenderer({
           name={field.id}
           control={control}
           render={({ field: rhf }) => (
-            <div className="flex items-center gap-3 min-h-[48px]">
+            <label
+              className="flex items-center gap-3 min-h-[56px] cursor-pointer active:bg-zinc-50 rounded-lg px-2 -mx-2"
+              onClick={(e) => {
+                if (disabled) return;
+                if ((e.target as HTMLElement).closest('[data-slot="checkbox"]')) return;
+                e.preventDefault();
+                rhf.onChange(!rhf.value);
+              }}
+            >
               <Checkbox
                 id={fieldId}
                 checked={rhf.value as boolean}
                 onCheckedChange={(checked) => rhf.onChange(checked)}
-                className="size-6"
+                className="size-7"
                 disabled={disabled}
               />
-              <Label htmlFor={fieldId} className="text-base cursor-pointer">
+              <span className="text-base select-none">
                 {field.label}
-              </Label>
-            </div>
+              </span>
+            </label>
           )}
         />
       );
@@ -344,7 +374,7 @@ function FieldRenderer({
                 {field.options?.map((opt) => (
                   <label
                     key={opt}
-                    className="flex items-center gap-3 min-h-[44px] cursor-pointer"
+                    className="flex items-center gap-3 min-h-[48px] cursor-pointer active:bg-zinc-50 rounded-lg px-2 -mx-2 select-none"
                   >
                     <input
                       type="radio"
@@ -353,12 +383,56 @@ function FieldRenderer({
                       checked={rhf.value === opt}
                       onChange={() => rhf.onChange(opt)}
                       disabled={disabled}
-                      className="size-5 accent-zinc-900"
+                      className="size-6 accent-zinc-900"
                     />
                     <span className="text-base">{opt}</span>
                   </label>
                 ))}
               </div>
+              {error && <p className="text-sm text-red-600">{error}</p>}
+            </div>
+          )}
+        />
+      );
+
+    case "photo":
+      return (
+        <Controller
+          name={field.id}
+          control={control}
+          render={({ field: rhf }) => (
+            <div className="space-y-2">
+              <Label className="text-base">
+                {field.label}
+                {field.required && (
+                  <span className="text-red-500 ml-0.5">*</span>
+                )}
+              </Label>
+              {rhf.value ? (
+                <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-sm text-green-700 flex items-center gap-2">
+                  <Camera className="size-4" />
+                  Photo captured
+                </div>
+              ) : (
+                <label className="flex w-full flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-zinc-300 bg-zinc-50 p-6 min-h-[100px] active:bg-zinc-100 cursor-pointer">
+                  <Camera className="size-8 text-zinc-400" />
+                  <span className="text-sm text-zinc-500">Tap to take photo</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    disabled={disabled}
+                    className="sr-only"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        console.log("[photo] file selected:", file.name);
+                        rhf.onChange(file.name);
+                      }
+                    }}
+                  />
+                </label>
+              )}
               {error && <p className="text-sm text-red-600">{error}</p>}
             </div>
           )}

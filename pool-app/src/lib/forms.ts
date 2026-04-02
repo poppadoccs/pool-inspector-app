@@ -12,7 +12,8 @@ export type FieldType =
   | "phone"
   | "email"
   | "radio"
-  | "signature";
+  | "signature"
+  | "photo";
 
 export const FIELD_TYPES: { value: FieldType; label: string }[] = [
   { value: "text", label: "Text" },
@@ -25,6 +26,7 @@ export const FIELD_TYPES: { value: FieldType; label: string }[] = [
   { value: "phone", label: "Phone" },
   { value: "email", label: "Email" },
   { value: "signature", label: "Signature" },
+  { value: "photo", label: "Photo" },
 ];
 
 export type FormField = {
@@ -116,6 +118,13 @@ export function buildFormSchema(template: FormTemplate) {
         } else {
           shape[field.id] = z.string();
         }
+        break;
+
+      case "photo":
+        // Photo fields store a URL or base64 string after upload
+        shape[field.id] = field.required
+          ? z.string().min(1, `${field.label} is required`)
+          : z.string();
         break;
     }
   }

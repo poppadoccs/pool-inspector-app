@@ -166,6 +166,7 @@ export async function getAllManagedJobs() {
       status: true,
       submittedBy: true,
       submittedAt: true,
+      workerSignature: true,
     },
   });
 }

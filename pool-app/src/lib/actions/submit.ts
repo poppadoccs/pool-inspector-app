@@ -12,10 +12,31 @@ function getResend() {
   return new Resend(process.env.RESEND_API_KEY);
 }
 
+const MAX_SIGNATURE_BYTES = 200_000; // ~200KB decoded — generous for a drawn signature
+
+function validateSignature(sig: string): string | null {
+  if (!sig.startsWith("data:image/png;base64,")) {
+    return "Signature must be a PNG data URL";
+  }
+  const b64 = sig.slice("data:image/png;base64,".length);
+  const decoded = Buffer.from(b64, "base64");
+  if (decoded.length > MAX_SIGNATURE_BYTES) {
+    return `Signature too large (${(decoded.length / 1024).toFixed(0)}KB, max ${MAX_SIGNATURE_BYTES / 1000}KB)`;
+  }
+  return null;
+}
+
 export async function submitJob(
   jobId: string,
-  submittedBy: string
+  submittedBy: string,
+  workerSignature?: string
 ): Promise<{ success: boolean; error?: string }> {
+  // 0. Validate signature format + size
+  if (workerSignature) {
+    const sigError = validateSignature(workerSignature);
+    if (sigError) return { success: false, error: sigError };
+  }
+
   // 1. Load job with template
   const job = await db.job.findUnique({
     where: { id: jobId },
@@ -32,6 +53,25 @@ export async function submitJob(
   const formData = job.formData as FormData | null;
   if (!formData) {
     return { success: false, error: "Please fill out the form before submitting" };
+  }
+
+  // Structural integrity: verify expected field IDs are present
+  const tplFields = job.template
+    ? (job.template.fields as { id: string }[])
+    : [];
+  const payloadKeys = new Set(Object.keys(formData));
+  const missingIds = tplFields
+    .map((f) => f.id)
+    .filter((id) => !payloadKeys.has(id));
+
+  console.log(
+    `[submit] Job ${jobId}: ${payloadKeys.size} keys, template expects ${tplFields.length}, missing ${missingIds.length}`
+  );
+  if (tplFields.length >= 20 && missingIds.length > tplFields.length * 0.5) {
+    return {
+      success: false,
+      error: `Data integrity error: ${missingIds.length} of ${tplFields.length} fields are missing. The form may not have loaded correctly — go back and try again.`,
+    };
   }
 
   // Resolve template: DB template or fallback to hardcoded default
@@ -93,6 +133,7 @@ export async function submitJob(
       status: "SUBMITTED",
       submittedBy,
       submittedAt: new Date(),
+      workerSignature: workerSignature || null,
     },
   });
 
