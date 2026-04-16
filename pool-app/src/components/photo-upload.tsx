@@ -24,12 +24,12 @@ export function PhotoUpload({ jobId }: { jobId: string }) {
   const [uploads, setUploads] = useState<UploadStatus[]>([]);
 
   const isProcessing = uploads.some(
-    (u) => u.status === "compressing" || u.status === "uploading"
+    (u) => u.status === "compressing" || u.status === "uploading",
   );
 
   function updateUpload(id: string, patch: Partial<UploadStatus>) {
     setUploads((prev) =>
-      prev.map((u) => (u.id === id ? { ...u, ...patch } : u))
+      prev.map((u) => (u.id === id ? { ...u, ...patch } : u)),
     );
   }
 
@@ -58,16 +58,25 @@ export function PhotoUpload({ jobId }: { jobId: string }) {
           const resultBlob = Array.isArray(blob) ? blob[0] : blob;
           processedFile = new File(
             [resultBlob],
-            originalFilename.replace(/\.heic$/i, ".jpg").replace(/\.heif$/i, ".jpg"),
-            { type: "image/jpeg" }
+            originalFilename
+              .replace(/\.heic$/i, ".jpg")
+              .replace(/\.heif$/i, ".jpg"),
+            { type: "image/jpeg" },
           );
           console.log("[photo] HEIC converted");
         }
 
         // Step 2: Compress
-        console.log(`[photo] Compressing ${originalFilename} (${(file.size / 1024).toFixed(0)}KB)...`);
-        const compressed = await imageCompression(processedFile, COMPRESSION_OPTIONS);
-        console.log(`[photo] Compressed to ${(compressed.size / 1024).toFixed(0)}KB, type: ${compressed.type}`);
+        console.log(
+          `[photo] Compressing ${originalFilename} (${(file.size / 1024).toFixed(0)}KB)...`,
+        );
+        const compressed = await imageCompression(
+          processedFile,
+          COMPRESSION_OPTIONS,
+        );
+        console.log(
+          `[photo] Compressed to ${(compressed.size / 1024).toFixed(0)}KB, type: ${compressed.type}`,
+        );
 
         // Step 3: Upload to server route (server-side put — no callback needed)
         updateUpload(id, { status: "uploading", progress: 50 });
@@ -77,7 +86,7 @@ export function PhotoUpload({ jobId }: { jobId: string }) {
         formData.append("file", compressed);
         formData.append(
           "filename",
-          originalFilename.replace(/[^a-zA-Z0-9._-]/g, "_")
+          originalFilename.replace(/[^a-zA-Z0-9._-]/g, "_"),
         );
 
         const response = await fetch("/api/photos/upload", {
@@ -133,14 +142,14 @@ export function PhotoUpload({ jobId }: { jobId: string }) {
       <input
         ref={cameraInputRef}
         type="file"
-        accept="image/jpeg,image/png"
+        accept="image/jpeg,image/png,image/heic,image/heif"
         className="hidden"
         onChange={handleChange}
       />
       <input
         ref={libraryInputRef}
         type="file"
-        accept="image/jpeg,image/png,image/webp"
+        accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
         multiple
         className="hidden"
         onChange={handleChange}

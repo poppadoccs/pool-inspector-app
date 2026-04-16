@@ -89,11 +89,12 @@ None yet.
 | 260416-ki0 | embed job photos in PDF as photo appendix | 2026-04-16 | 6584283 | [260416-ki0](./quick/260416-ki0-embed-job-photos-in-pdf-as-photo-appendi/) |
 | 260416-krc | fix form photo fields to upload blob and populate job.photos | 2026-04-16 | 93be93a | [260416-krc](./quick/260416-krc-fix-form-photo-fields-to-upload-blob-and/) |
 | 260416-mdz | restore numbered question fidelity and inline photo placement in PDF | 2026-04-16 | b796f85 | [260416-mdz](./quick/260416-mdz-restore-numbered-question-fidelity-and-i/) |
+| 260416-sec | remove all section headings, inline photos queue fallback, proof PDF | 2026-04-16 | c1476f6 | — |
 
-Last activity: 2026-04-16 — Completed quick task 260416-mdz: numbered questions restored, DB sections fixed, photos now embed inline in PDF
+Last activity: 2026-04-16 — Removed all section headings from DB template (pure numbered list), fixed photo queue fallback for old jobs, fixed inlinePhotoUrls race (Codex), generated proof PDF (10 pages, 6 inline photos)
 
 ## Session Continuity
 
 Last session: 2026-04-16
-Stopped at: Quick task 260416-krc complete — form photo fields wired to real upload, PDF appendix now has photos to embed
+Stopped at: Proof PDF generated — C:\Users\renea\Downloads\Kimberly Hennessy-report (2).pdf
 Resume file: None
