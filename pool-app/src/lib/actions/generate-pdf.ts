@@ -195,26 +195,31 @@ export async function generateJobPdf(
               const buf = await res.arrayBuffer();
               const b64 = Buffer.from(buf).toString("base64");
               const imgProps = doc.getImageProperties(b64);
-              let imgH = (imgProps.height / imgProps.width) * CONTENT_WIDTH;
-              if (imgH > 75) imgH = 75;
+              const ar = imgProps.height / imgProps.width;
+              let imgW = CONTENT_WIDTH;
+              let imgH = ar * imgW;
+              if (imgH > 75) {
+                imgH = 75;
+                imgW = imgH / ar;
+              }
+              const imgX = MARGIN + (CONTENT_WIDTH - imgW) / 2;
               if (y + imgH + 8 > 280) {
                 doc.addPage();
                 y = MARGIN;
               }
-              doc.addImage(
-                b64,
-                "JPEG",
-                MARGIN,
-                y,
-                CONTENT_WIDTH,
-                imgH,
-                undefined,
-                "FAST",
-              );
+              doc.addImage(b64, "JPEG", imgX, y, imgW, imgH, undefined, "FAST");
               inlinePhotoUrls.add(url);
               y += imgH + 6;
             } catch {
-              // skip failed photo — don't break layout
+              // mark failed photo so it isn't silently dropped
+              if (y + 5 > 280) {
+                doc.addPage();
+                y = MARGIN;
+              }
+              doc.setFont("helvetica", "italic");
+              doc.setFontSize(8);
+              doc.text("[photo could not be loaded]", MARGIN, y);
+              y += 5;
             }
           }
         }
@@ -234,8 +239,14 @@ export async function generateJobPdf(
           const buf = await res.arrayBuffer();
           const b64 = Buffer.from(buf).toString("base64");
           const imgProps = doc.getImageProperties(b64);
-          let imgH = (imgProps.height / imgProps.width) * CONTENT_WIDTH;
-          if (imgH > 75) imgH = 75;
+          const ar = imgProps.height / imgProps.width;
+          let imgW = CONTENT_WIDTH;
+          let imgH = ar * imgW;
+          if (imgH > 75) {
+            imgH = 75;
+            imgW = imgH / ar;
+          }
+          const imgX = MARGIN + (CONTENT_WIDTH - imgW) / 2;
 
           const blockH = photoLabelLines.length * 4 + 3 + imgH + 8;
           if (y + blockH > 280) {
@@ -244,16 +255,7 @@ export async function generateJobPdf(
           }
           doc.text(photoLabelLines, MARGIN, y);
           y += photoLabelLines.length * 4 + 3;
-          doc.addImage(
-            b64,
-            "JPEG",
-            MARGIN,
-            y,
-            CONTENT_WIDTH,
-            imgH,
-            undefined,
-            "FAST",
-          );
+          doc.addImage(b64, "JPEG", imgX, y, imgW, imgH, undefined, "FAST");
           y += imgH + 8;
           inlinePhotoUrls.add(photoUrl);
           continue;
@@ -318,6 +320,41 @@ export async function generateJobPdf(
     doc.text(valueLines, MARGIN + labelWidth + 5, y);
 
     y += blockHeight;
+  }
+
+  // Safety drain — renders any remaining photos for jobs whose template
+  // does not contain field id "108_additional_photos" (e.g. DEFAULT_TEMPLATE).
+  for (const url of photosQueue.splice(0)) {
+    try {
+      const res = await fetch(url);
+      const buf = await res.arrayBuffer();
+      const b64 = Buffer.from(buf).toString("base64");
+      const imgProps = doc.getImageProperties(b64);
+      const ar = imgProps.height / imgProps.width;
+      let imgW = CONTENT_WIDTH;
+      let imgH = ar * imgW;
+      if (imgH > 75) {
+        imgH = 75;
+        imgW = imgH / ar;
+      }
+      const imgX = MARGIN + (CONTENT_WIDTH - imgW) / 2;
+      if (y + imgH + 8 > 280) {
+        doc.addPage();
+        y = MARGIN;
+      }
+      doc.addImage(b64, "JPEG", imgX, y, imgW, imgH, undefined, "FAST");
+      inlinePhotoUrls.add(url);
+      y += imgH + 6;
+    } catch {
+      if (y + 5 > 280) {
+        doc.addPage();
+        y = MARGIN;
+      }
+      doc.setFont("helvetica", "italic");
+      doc.setFontSize(8);
+      doc.text("[photo could not be loaded]", MARGIN, y);
+      y += 5;
+    }
   }
 
   // --- Worker Signature ---
