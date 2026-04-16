@@ -127,6 +127,22 @@ export async function generateJobPdf(
   let currentSection = "";
   const inlinePhotoUrls = new Set<string>();
 
+  // Build a fallback queue for photo fields whose formData value is not a blob URL.
+  // Jobs submitted before blob URLs were stored in formData (e.g. pre-260416-krc)
+  // have filenames or empty strings in photo fields — fall back to job.photos in order.
+  const formDataPhotoUrls = new Set<string>(
+    template.fields
+      .filter((f) => f.type === "photo")
+      .map((f) => formData?.[f.id])
+      .filter(
+        (v): v is string => typeof v === "string" && v.startsWith("http"),
+      ),
+  );
+  const allJobPhotosArr = (job.photos as PhotoMetadata[] | null) ?? [];
+  const photosQueue: string[] = allJobPhotosArr
+    .map((p) => p.url)
+    .filter((u) => !formDataPhotoUrls.has(u));
+
   for (const field of template.fields) {
     // Section header
     if (field.section && field.section !== currentSection) {
@@ -146,11 +162,11 @@ export async function generateJobPdf(
 
     // --- Photo fields: embed inline below label ---
     if (field.type === "photo") {
-      const photoUrl =
+      const directUrl =
         typeof rawValue === "string" && rawValue.startsWith("http")
           ? rawValue
           : null;
-      if (photoUrl) inlinePhotoUrls.add(photoUrl);
+      const photoUrl = directUrl ?? photosQueue.shift() ?? null;
 
       doc.setFont("helvetica", "bold");
       doc.setFontSize(9);
@@ -183,6 +199,9 @@ export async function generateJobPdf(
             "FAST",
           );
           y += imgH + 8;
+          // Only mark inline after successful embed — prevents appendix from
+          // dropping photos that failed to render (Codex finding #2).
+          inlinePhotoUrls.add(photoUrl);
           continue;
         } catch {
           // fall through to text fallback
