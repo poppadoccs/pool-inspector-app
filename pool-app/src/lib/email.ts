@@ -60,21 +60,22 @@ export function buildSubmissionEmail({
         <h2 style="font-size: 18px; margin: 24px 0 12px 0; color: #333;">
           Photos (${photos.length})
         </h2>
-        <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+        <div style="width: 100%; max-width: 100%;">
           ${photos
             .map(
               (photo) => `
-            <a href="${escapeHtml(photo.url)}" target="_blank" style="display: inline-block;">
+            <a href="${escapeHtml(photo.url)}" target="_blank" style="display: block; margin-bottom: 10px; text-decoration: none;">
               <img
                 src="${escapeHtml(photo.url)}"
-                alt="${escapeHtml(photo.filename)}"
-                style="width: 150px; height: 150px; object-fit: cover; border-radius: 8px; border: 1px solid #e5e5e5;"
+                alt="Photo"
+                width="100%"
+                style="display: block; width: 100%; max-width: 100%; height: auto; border-radius: 6px; border: 1px solid #e5e5e5;"
               />
             </a>`,
             )
             .join("")}
         </div>
-        <p style="font-size: 13px; color: #888; margin-top: 8px;">
+        <p style="font-size: 13px; color: #888; margin-top: 4px;">
           Click any photo to view full size.
         </p>`
       : "";
