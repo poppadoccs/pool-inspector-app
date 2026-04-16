@@ -31,6 +31,7 @@ import {
 } from "@/lib/forms";
 import { saveFormData } from "@/lib/actions/forms";
 import { StickyFormNav } from "@/components/sticky-form-nav";
+import { ImportFromPaper } from "@/components/import-from-paper";
 
 // --- localStorage draft helpers ---
 
@@ -51,7 +52,7 @@ function saveDraftToStorage(jobId: string, data: FormData) {
   try {
     localStorage.setItem(
       DRAFT_KEY(jobId),
-      JSON.stringify({ data, savedAt: Date.now() })
+      JSON.stringify({ data, savedAt: Date.now() }),
     );
   } catch {
     // localStorage full or unavailable — silent fail, DB save is backup
@@ -90,6 +91,7 @@ export function JobForm({
     control,
     watch,
     reset,
+    setValue,
     getValues,
     formState: { errors },
   } = useForm({
@@ -99,7 +101,7 @@ export function JobForm({
   });
 
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">(
-    "idle"
+    "idle",
   );
   const dbSaveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const savedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -142,11 +144,27 @@ export function JobForm({
     };
   }, [watch, jobId, disabled]);
 
+  function handleImport(extracted: Record<string, string>) {
+    // Use setValue per field so the watch() subscription fires and auto-save triggers.
+    // reset() does not reliably fire watch() in RHF v7.
+    for (const [id, value] of Object.entries(extracted)) {
+      setValue(id as keyof FormData, value, {
+        shouldDirty: true,
+        shouldTouch: true,
+      });
+    }
+  }
+
   return (
     <div className="space-y-5">
+      {/* Import from paper — only on draft forms */}
+      {!disabled && (
+        <ImportFromPaper fields={template.fields} onApply={handleImport} />
+      )}
+
       {/* Save status indicator (hidden when disabled/submitted) */}
       {!disabled && (
-        <div className="flex items-center gap-2 text-sm min-h-[20px]">
+        <div className="flex min-h-[20px] items-center gap-2 text-sm">
           {saveStatus === "saving" && (
             <span className="flex items-center gap-1.5 text-zinc-500">
               <Loader2 className="size-3.5 animate-spin" />
@@ -172,7 +190,7 @@ export function JobForm({
             {showSection && (
               <h3
                 data-section={field.section}
-                className="pt-4 pb-1 text-sm font-semibold uppercase tracking-wide text-zinc-400"
+                className="pt-4 pb-1 text-sm font-semibold tracking-wide text-zinc-400 uppercase"
               >
                 {field.section}
               </h3>
@@ -225,7 +243,7 @@ function FieldRenderer({
         <div className="space-y-1.5">
           <Label htmlFor={fieldId} className="text-base">
             {field.label}
-            {field.required && <span className="text-red-500 ml-0.5">*</span>}
+            {field.required && <span className="ml-0.5 text-red-500">*</span>}
           </Label>
           <Input
             id={fieldId}
@@ -254,7 +272,7 @@ function FieldRenderer({
         <div className="space-y-1.5">
           <Label htmlFor={fieldId} className="text-base">
             {field.label}
-            {field.required && <span className="text-red-500 ml-0.5">*</span>}
+            {field.required && <span className="ml-0.5 text-red-500">*</span>}
           </Label>
           <Input
             id={fieldId}
@@ -274,7 +292,7 @@ function FieldRenderer({
         <div className="space-y-1.5">
           <Label htmlFor={fieldId} className="text-base">
             {field.label}
-            {field.required && <span className="text-red-500 ml-0.5">*</span>}
+            {field.required && <span className="ml-0.5 text-red-500">*</span>}
           </Label>
           <Textarea
             id={fieldId}
@@ -295,10 +313,11 @@ function FieldRenderer({
           control={control}
           render={({ field: rhf }) => (
             <label
-              className="flex items-center gap-3 min-h-[56px] cursor-pointer active:bg-zinc-50 rounded-lg px-2 -mx-2"
+              className="-mx-2 flex min-h-[56px] cursor-pointer items-center gap-3 rounded-lg px-2 active:bg-zinc-50"
               onClick={(e) => {
                 if (disabled) return;
-                if ((e.target as HTMLElement).closest('[data-slot="checkbox"]')) return;
+                if ((e.target as HTMLElement).closest('[data-slot="checkbox"]'))
+                  return;
                 e.preventDefault();
                 rhf.onChange(!rhf.value);
               }}
@@ -310,9 +329,7 @@ function FieldRenderer({
                 className="size-7"
                 disabled={disabled}
               />
-              <span className="text-base select-none">
-                {field.label}
-              </span>
+              <span className="text-base select-none">{field.label}</span>
             </label>
           )}
         />
@@ -328,7 +345,7 @@ function FieldRenderer({
               <Label className="text-base">
                 {field.label}
                 {field.required && (
-                  <span className="text-red-500 ml-0.5">*</span>
+                  <span className="ml-0.5 text-red-500">*</span>
                 )}
               </Label>
               <Select
@@ -336,7 +353,7 @@ function FieldRenderer({
                 onValueChange={(val) => rhf.onChange(val)}
                 disabled={disabled}
               >
-                <SelectTrigger className="w-full min-h-[48px] text-base">
+                <SelectTrigger className="min-h-[48px] w-full text-base">
                   <SelectValue placeholder="Select..." />
                 </SelectTrigger>
                 <SelectContent>
@@ -367,14 +384,14 @@ function FieldRenderer({
               <Label className="text-base">
                 {field.label}
                 {field.required && (
-                  <span className="text-red-500 ml-0.5">*</span>
+                  <span className="ml-0.5 text-red-500">*</span>
                 )}
               </Label>
               <div className="space-y-1">
                 {field.options?.map((opt) => (
                   <label
                     key={opt}
-                    className="flex items-center gap-3 min-h-[48px] cursor-pointer active:bg-zinc-50 rounded-lg px-2 -mx-2 select-none"
+                    className="-mx-2 flex min-h-[48px] cursor-pointer items-center gap-3 rounded-lg px-2 select-none active:bg-zinc-50"
                   >
                     <input
                       type="radio"
@@ -405,22 +422,23 @@ function FieldRenderer({
               <Label className="text-base">
                 {field.label}
                 {field.required && (
-                  <span className="text-red-500 ml-0.5">*</span>
+                  <span className="ml-0.5 text-red-500">*</span>
                 )}
               </Label>
               {rhf.value ? (
-                <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-sm text-green-700 flex items-center gap-2">
+                <div className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-sm text-green-700">
                   <Camera className="size-4" />
                   Photo captured
                 </div>
               ) : (
-                <label className="flex w-full flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-zinc-300 bg-zinc-50 p-6 min-h-[100px] active:bg-zinc-100 cursor-pointer">
+                <label className="flex min-h-[100px] w-full cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-zinc-300 bg-zinc-50 p-6 active:bg-zinc-100">
                   <Camera className="size-8 text-zinc-400" />
-                  <span className="text-sm text-zinc-500">Tap to take photo</span>
+                  <span className="text-sm text-zinc-500">
+                    Tap to take photo
+                  </span>
                   <input
                     type="file"
                     accept="image/*"
-                    capture="environment"
                     disabled={disabled}
                     className="sr-only"
                     onChange={(e) => {

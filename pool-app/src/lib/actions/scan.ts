@@ -52,7 +52,9 @@ const ExtractedFieldSchema = z.object({
 const ExtractedTemplateSchema = z.object({
   name: z
     .string()
-    .describe("Title of the form, extracted from the header or top of the page"),
+    .describe(
+      "Title of the form, extracted from the header or top of the page",
+    ),
   description: z
     .string()
     .optional()
@@ -202,7 +204,9 @@ function norm(s: string): string {
 /** Check if a normalized (no spaces/symbols) string is only unit/qualifier text */
 function isOnlyUnitText(s: string): boolean {
   if (!s) return true;
-  return /^(?:ft|sqft|squarefeet|foot|feet|gallons?|gal|inches?|in|meters?|m|yards?|yd|lbs?|lb|pounds?|pound|overall|interior|exterior|minimum|min|maximum|max|approx|approximate|est|estimated|total)*$/.test(s);
+  return /^(?:ft|sqft|squarefeet|foot|feet|gallons?|gal|inches?|in|meters?|m|yards?|yd|lbs?|lb|pounds?|pound|overall|interior|exterior|minimum|min|maximum|max|approx|approximate|est|estimated|total)*$/.test(
+    s,
+  );
 }
 
 /**
@@ -259,7 +263,8 @@ function dropFooterWatermarks(fields: RawField[]): RawField[] {
   // Standalone license/cert line: "License CPC1459862" — but NOT a question
   // like "Contractor License #" that asks for user input.
   // Must be: the word "license/cert" + an alphanumeric code, no question words.
-  const LICENSE_STANDALONE_RE = /^(?:licen[sc]e|cert(?:ification)?)\s+[A-Z0-9]{4,}/i;
+  const LICENSE_STANDALONE_RE =
+    /^(?:licen[sc]e|cert(?:ification)?)\s+[A-Z0-9]{4,}/i;
 
   return fields.filter((f) => {
     const label = f.label.trim();
@@ -272,10 +277,12 @@ function dropFooterWatermarks(fields: RawField[]): RawField[] {
     if (EMAIL_RE.test(label) && leadingNumber(label) === null) return false;
 
     // Kill standalone license lines (not numbered questions about licenses)
-    if (LICENSE_STANDALONE_RE.test(label) && leadingNumber(label) === null) return false;
+    if (LICENSE_STANDALONE_RE.test(label) && leadingNumber(label) === null)
+      return false;
 
     // Kill labels that repeat ≥3 times with no question number (watermark text)
-    if (leadingNumber(label) === null && labelCounts.get(norm(label))! >= 3) return false;
+    if (leadingNumber(label) === null && labelCounts.get(norm(label))! >= 3)
+      return false;
 
     return true;
   });
@@ -365,7 +372,8 @@ function stabilizeSections(fields: RawField[]): SectionStabilizeResult {
   // Case 1: AI assigned sections to most fields — trust and fill gaps
   if (ratio > 0.5) {
     // "General" is not a real section — treat it as empty
-    const isReal = (s?: string) => !!s?.trim() && s.trim().toLowerCase() !== "general";
+    const isReal = (s?: string) =>
+      !!s?.trim() && s.trim().toLowerCase() !== "general";
 
     let lastSection = "";
     const repaired = fields.map((f) => {
@@ -382,7 +390,7 @@ function stabilizeSections(fields: RawField[]): SectionStabilizeResult {
 
     // Backward fill: numbered fields before the first real section
     // belong to that section, not "General"
-    const firstSection = repaired.find(f => isReal(f.section))?.section;
+    const firstSection = repaired.find((f) => isReal(f.section))?.section;
     if (firstSection) {
       for (let i = 0; i < repaired.length; i++) {
         if (isReal(repaired[i].section)) break;
@@ -411,7 +419,11 @@ function stabilizeSections(fields: RawField[]): SectionStabilizeResult {
   const detectedSections: { index: number; name: string }[] = [];
   for (let i = 0; i < fields.length; i++) {
     const label = fields[i].label.trim();
-    if (ROMAN_PREFIX.test(label) && fields[i].type === "text" && !fields[i].placeholder) {
+    if (
+      ROMAN_PREFIX.test(label) &&
+      fields[i].type === "text" &&
+      !fields[i].placeholder
+    ) {
       detectedSections.push({ index: i, name: label });
     }
   }
@@ -420,7 +432,7 @@ function stabilizeSections(fields: RawField[]): SectionStabilizeResult {
     // Assign each field to the most recent detected section header
     const repaired: RawField[] = [];
     let currentSection = "";
-    let headerIndices = new Set(detectedSections.map((s) => s.index));
+    const headerIndices = new Set(detectedSections.map((s) => s.index));
 
     for (let i = 0; i < fields.length; i++) {
       if (headerIndices.has(i)) {
@@ -472,7 +484,7 @@ function stabilizeSections(fields: RawField[]): SectionStabilizeResult {
 
 function dropSectionHeaderFields(
   fields: RawField[],
-  sections: Set<string>
+  sections: Set<string>,
 ): RawField[] {
   if (sections.size === 0) return fields;
 
@@ -492,7 +504,10 @@ function dropSectionHeaderFields(
     // Also try stripping Roman numeral prefix — AI may store section without it
     const romanStripped = norm(f.label.replace(/^[IVXLC]+\.\s*/i, ""));
 
-    if (sectionNorms.has(labelNorm) || (romanStripped && sectionNorms.has(romanStripped))) {
+    if (
+      sectionNorms.has(labelNorm) ||
+      (romanStripped && sectionNorms.has(romanStripped))
+    ) {
       // Numbered fields like "4. Setbacks" are real questions even if
       // their label matches a section name — keep them
       return leadingNumber(f.label) !== null;
@@ -590,13 +605,24 @@ function absorbOptionChildren(fields: RawField[]): RawField[] {
 
         // Measurement/dimension terms are sub-fields, never options
         const MEASUREMENT_WORDS = new Set([
-          "length", "width", "height", "depth", "diameter",
-          "area", "volume", "weight", "distance", "size",
+          "length",
+          "width",
+          "height",
+          "depth",
+          "diameter",
+          "area",
+          "volume",
+          "weight",
+          "distance",
+          "size",
         ]);
 
         for (const child of children) {
           const childText = stripNumbering(child.label);
-          const bareText = childText.replace(/\(.*\)/, "").trim().toLowerCase();
+          const bareText = childText
+            .replace(/\(.*\)/, "")
+            .trim()
+            .toLowerCase();
 
           // Never absorb measurement sub-fields
           if (MEASUREMENT_WORDS.has(bareText)) {
@@ -608,7 +634,10 @@ function absorbOptionChildren(fields: RawField[]): RawField[] {
           const isYesNoNone = /^(yes|no|none|n\/a)\b/i.test(childText);
 
           // Pattern: contains instructional text like "If yes", "Check", "requires"
-          const isInstruction = /\b(if\s+yes|if\s+no|check|requires|must|see|refer)\b/i.test(childText);
+          const isInstruction =
+            /\b(if\s+yes|if\s+no|check|requires|must|see|refer)\b/i.test(
+              childText,
+            );
 
           // Only absorb unambiguous option/note patterns — never guess on single words
           // like "House" or "Fence" which are real sub-field names
@@ -623,7 +652,9 @@ function absorbOptionChildren(fields: RawField[]): RawField[] {
 
         // If we absorbed options, add them to parent
         if (absorbedOptions.length > 0) {
-          const existingOptions = Array.isArray(field.options) ? field.options : [];
+          const existingOptions = Array.isArray(field.options)
+            ? field.options
+            : [];
           const mergedOptions = [...existingOptions, ...absorbedOptions];
           result.push({ ...field, options: mergedOptions });
         } else {
@@ -789,9 +820,11 @@ function mergeCompoundFields(fields: RawField[]): RawField[] {
       if (children.length >= 2) {
         // Special case: dimension pair (Length + Width) → single field
         if (children.length === 2) {
-          const texts = children.map(c => stripNumbering(c.label).toLowerCase());
-          const hasLength = texts.some(t => /\blength\b/.test(t));
-          const hasWidth = texts.some(t => /\bwidth\b/.test(t));
+          const texts = children.map((c) =>
+            stripNumbering(c.label).toLowerCase(),
+          );
+          const hasLength = texts.some((t) => /\blength\b/.test(t));
+          const hasWidth = texts.some((t) => /\bwidth\b/.test(t));
           if (hasLength && hasWidth) {
             result.push({
               ...field,
@@ -851,7 +884,8 @@ function repairCheckboxes(fields: RawField[]): RawField[] {
   return fields.map((f) => {
     if (f.type === "checkbox") {
       const hasOptions =
-        Array.isArray(f.options) && f.options.filter((o) => o.trim()).length > 0;
+        Array.isArray(f.options) &&
+        f.options.filter((o) => o.trim()).length > 0;
       if (!hasOptions) {
         // A single yes/no checkbox is valid — keep it
         // But if label suggests multiple choices, downgrade to text
@@ -859,8 +893,11 @@ function repairCheckboxes(fields: RawField[]): RawField[] {
       }
     }
     // If type is radio/select but no options, downgrade to text
-    if ((f.type === "radio" || f.type === "select") &&
-        (!Array.isArray(f.options) || f.options.filter((o) => o.trim()).length === 0)) {
+    if (
+      (f.type === "radio" || f.type === "select") &&
+      (!Array.isArray(f.options) ||
+        f.options.filter((o) => o.trim()).length === 0)
+    ) {
       return { ...f, type: "text" as const };
     }
     return f;
@@ -883,7 +920,7 @@ function extractHelperText(fields: RawField[]): RawField[] {
 
     // Pattern 1: "(e.g., ...)", "(ex: ...)", "(example: ...)", "(note: ...)"
     const hintMatch = label.match(
-      /\s*\((?:e\.?g\.?|ex|example|hint|note)[:\s,.]*([^)]+)\)\s*$/i
+      /\s*\((?:e\.?g\.?|ex|example|hint|note)[:\s,.]*([^)]+)\)\s*$/i,
     );
     if (hintMatch && !placeholder) {
       label = label.slice(0, hintMatch.index).trim();
@@ -969,7 +1006,7 @@ function fixChildSections(fields: RawField[]): RawField[] {
     }
   }
 
-  return fields.map(f => {
+  return fields.map((f) => {
     const num = leadingNumber(f.label);
     const sub = leadingSub(f.label);
     if (num !== null && sub !== null) {
@@ -1001,7 +1038,7 @@ function cleanChildLabels(fields: RawField[]): RawField[] {
     }
   }
 
-  return fields.map(f => {
+  return fields.map((f) => {
     const num = leadingNumber(f.label);
     const sub = leadingSub(f.label);
     if (num === null || sub === null) return f;
@@ -1014,13 +1051,19 @@ function cleanChildLabels(fields: RawField[]): RawField[] {
 
     // Strip parent text from beginning (e.g., "Setbacks House" → "House")
     if (clean.toLowerCase().startsWith(parentText.toLowerCase())) {
-      clean = clean.slice(parentText.length).replace(/^[-—–,\s]+/, "").trim();
+      clean = clean
+        .slice(parentText.length)
+        .replace(/^[-—–,\s]+/, "")
+        .trim();
     }
 
     // Strip parent words from end (e.g., "House Setback" → "House")
-    for (const pw of parentText.toLowerCase().split(/\s+/).filter(w => w.length > 2)) {
+    for (const pw of parentText
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((w) => w.length > 2)) {
       const base = pw.replace(/s$/, "");
-      clean = clean.replace(new RegExp(`\\s+${base}s?$`, 'i'), "").trim();
+      clean = clean.replace(new RegExp(`\\s+${base}s?$`, "i"), "").trim();
     }
 
     // Fallback to original if stripping left nothing
@@ -1087,14 +1130,15 @@ function conservativeNormalize(raw: ExtractedTemplate): FormField[] {
   return sanitizeFields(fields);
 }
 
-const BLOAT_THRESHOLD = 0.30; // 30% — if pipeline adds more than this, fallback
+const BLOAT_THRESHOLD = 0.3; // 30% — if pipeline adds more than this, fallback
 
 function normalizeExtractedFields(raw: ExtractedTemplate): FormField[] {
   const rawCount = raw.fields.length;
 
   // Pre-passes: run before structural analysis
-  const preProcessed: RawField[] = flattenAndDetectPhotos(     // B. kill fake sub-letters + tag photos
-    dropFooterWatermarks(raw.fields),                          // A. kill repeated contact blocks
+  const preProcessed: RawField[] = flattenAndDetectPhotos(
+    // B. kill fake sub-letters + tag photos
+    dropFooterWatermarks(raw.fields), // A. kill repeated contact blocks
   );
   let fields = preProcessed;
 
@@ -1103,29 +1147,31 @@ function normalizeExtractedFields(raw: ExtractedTemplate): FormField[] {
   fields = sectionStable;
 
   // Structural passes
-  fields = cleanLabels(fields);                        // 1. strip [ ], trailing colons, truncated parens
-  fields = dropSectionHeaderFields(fields, sections);  // 2. remove header dupes
-  fields = absorbOptionChildren(fields);               // 3. absorb Yes/No/None + instructional text
-  fields = dropFakeChildren(fields);                   // 4. kill unit/dupe children, keep real ones (4a/4b/4c)
-  fields = mergeCompoundFields(fields);                // 5. group ≥2 children under parent + dimension collapse
-  fields = fixChildSections(fields);                   // 6. ensure children share parent's section
-  fields = cleanChildLabels(fields);                   // 7. strip repeated parent text from child labels
-  fields = repairCheckboxes(fields);                   // 8. fix empty checkboxes
-  fields = extractHelperText(fields);                  // 9. notes → placeholders
-  fields = fixNumbering(fields);                       // 10. sort by number (children under parent)
+  fields = cleanLabels(fields); // 1. strip [ ], trailing colons, truncated parens
+  fields = dropSectionHeaderFields(fields, sections); // 2. remove header dupes
+  fields = absorbOptionChildren(fields); // 3. absorb Yes/No/None + instructional text
+  fields = dropFakeChildren(fields); // 4. kill unit/dupe children, keep real ones (4a/4b/4c)
+  fields = mergeCompoundFields(fields); // 5. group ≥2 children under parent + dimension collapse
+  fields = fixChildSections(fields); // 6. ensure children share parent's section
+  fields = cleanChildLabels(fields); // 7. strip repeated parent text from child labels
+  fields = repairCheckboxes(fields); // 8. fix empty checkboxes
+  fields = extractHelperText(fields); // 9. notes → placeholders
+  fields = fixNumbering(fields); // 10. sort by number (children under parent)
 
-  const result = sanitizeFields(fields);               // 6. dedupe + validate
+  const result = sanitizeFields(fields); // 6. dedupe + validate
 
   // Debug: dump final normalized labels so runtime output is visible
   console.log(
     `[scan] Normalized ${rawCount} raw → ${result.length} fields:`,
-    result.map((f) => `${f.label}${f.placeholder ? ` [${f.placeholder}]` : ""}`),
+    result.map(
+      (f) => `${f.label}${f.placeholder ? ` [${f.placeholder}]` : ""}`,
+    ),
   );
 
   // Bloat guard
   if (rawCount > 0 && result.length > rawCount * (1 + BLOAT_THRESHOLD)) {
     console.warn(
-      `[scan] Bloat guard: normalization produced ${result.length} fields from ${rawCount} raw (>${Math.round(BLOAT_THRESHOLD * 100)}% increase). Falling back to conservative pass.`
+      `[scan] Bloat guard: normalization produced ${result.length} fields from ${rawCount} raw (>${Math.round(BLOAT_THRESHOLD * 100)}% increase). Falling back to conservative pass.`,
     );
     return conservativeNormalize(raw);
   }
@@ -1138,7 +1184,7 @@ function normalizeExtractedFields(raw: ExtractedTemplate): FormField[] {
 async function extractSingleImage(
   resolved: ResolvedModel & {},
   imageBase64: string,
-  mimeType: string
+  mimeType: string,
 ): Promise<{ extracted: ExtractedTemplate | null; error?: string }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), PAGE_TIMEOUT_MS);
@@ -1183,7 +1229,7 @@ async function extractSingleImage(
 
 async function extractPdf(
   resolved: ResolvedModel & {},
-  pdfBase64: string
+  pdfBase64: string,
 ): Promise<{ extracted: ExtractedTemplate | null; error?: string }> {
   const controller = new AbortController();
   // PDFs get more time — up to 60s
@@ -1229,7 +1275,7 @@ async function extractPdf(
 
 export async function extractFormTemplate(
   imageBase64: string,
-  mimeType: string = "image/jpeg"
+  mimeType: string = "image/jpeg",
 ): Promise<ScanResult> {
   const resolved = await resolveModel();
 
@@ -1251,13 +1297,14 @@ export async function extractFormTemplate(
   const { extracted, error } = await extractSingleImage(
     resolved,
     imageBase64,
-    mimeType
+    mimeType,
   );
 
   if (error === "timeout") {
     return {
       success: false,
-      error: "Scan timed out after 30 seconds. Try a clearer photo or upload as PDF.",
+      error:
+        "Scan timed out after 30 seconds. Try a clearer photo or upload as PDF.",
     };
   }
   if (error) {
@@ -1266,7 +1313,8 @@ export async function extractFormTemplate(
   if (!extracted || !extracted.fields || extracted.fields.length === 0) {
     return {
       success: false,
-      error: "Could not extract any fields from this image. Try a clearer photo.",
+      error:
+        "Could not extract any fields from this image. Try a clearer photo.",
     };
   }
 
@@ -1293,7 +1341,7 @@ export async function extractFormTemplate(
 
 export async function extractSinglePage(
   imageBase64: string,
-  mimeType: string = "image/jpeg"
+  mimeType: string = "image/jpeg",
 ): Promise<PageScanResult> {
   const resolved = await resolveModel();
   if (!resolved) {
@@ -1303,7 +1351,7 @@ export async function extractSinglePage(
   const { extracted, error } = await extractSingleImage(
     resolved,
     imageBase64,
-    mimeType
+    mimeType,
   );
 
   if (error === "timeout") {
@@ -1313,16 +1361,176 @@ export async function extractSinglePage(
     return { success: false, fields: [], error };
   }
   if (!extracted || !extracted.fields || extracted.fields.length === 0) {
-    return { success: false, fields: [], error: "No fields found on this page" };
+    return {
+      success: false,
+      fields: [],
+      error: "No fields found on this page",
+    };
   }
 
   return { success: true, fields: normalizeExtractedFields(extracted) };
 }
 
+// =====================================================================
+// ANSWER EXTRACTION — for filled-out paper forms → job formData
+// =====================================================================
+
+const ANSWER_EXTRACT_SYSTEM_PROMPT = `You are extracting answers from a FILLED-OUT paper inspection form.
+
+You will receive:
+1. A JSON array of form fields, each with "id", "label", "type", and optional "options"
+2. An image (or PDF) of the filled-out paper form with handwritten or typed answers
+
+For each field that has a clear, readable answer on the form, extract the value.
+ONLY return fields where you can clearly read the answer. Skip blank or illegible fields.
+
+Rules:
+- text / number / phone / email / date: return the written text exactly as written
+- checkbox: return "true" if the box is checked/ticked, "false" if unchecked
+- radio / select: return the exact option text that is selected, circled, or checked — must match one of the provided options
+- signature: return the signer's name if readable
+- photo: ALWAYS skip — these are not text answers
+- The fieldId in your response MUST exactly match one of the "id" values in the provided field list
+- If you cannot match a fieldId with certainty, omit it
+- Confidence below 0.4: omit the field entirely`;
+
+const ExtractedAnswerItemSchema = z.object({
+  fieldId: z.string().describe("Exact field id from the provided list"),
+  value: z.string().describe("The extracted answer value as a string"),
+});
+
+const ExtractedAnswersSchema = z.object({
+  answers: z
+    .array(ExtractedAnswerItemSchema)
+    .describe(
+      "Answers for fields where a clear answer is visible. Omit blank or illegible fields.",
+    ),
+});
+
+export type AnswerExtractionResult = {
+  success: boolean;
+  mock?: boolean;
+  answers?: Record<string, string>;
+  error?: string;
+};
+
+export async function extractAnswersFromFilledForm(
+  fileBase64: string,
+  mimeType: string,
+  fields: FormField[],
+): Promise<AnswerExtractionResult> {
+  const resolved = await resolveModel();
+
+  // Mock mode: return fake answers for first few extractable fields
+  if (!resolved) {
+    await new Promise((r) => setTimeout(r, 1500));
+    const MOCK_VALUES: Partial<Record<FieldType, string>> = {
+      text: "Sample imported value",
+      number: "42",
+      date: new Date().toISOString().split("T")[0],
+      phone: "(407) 555-0100",
+      email: "field@example.com",
+    };
+    const answers: Record<string, string> = {};
+    for (const f of fields.slice(0, 4)) {
+      const v = MOCK_VALUES[f.type];
+      if (v) answers[f.id] = v;
+    }
+    return { success: true, mock: true, answers };
+  }
+
+  // Build a compact field list for the prompt (skip photo fields)
+  const fieldList = fields
+    .filter((f) => f.type !== "photo")
+    .map((f) => ({
+      id: f.id,
+      label: f.label,
+      type: f.type,
+      ...(f.options?.length ? { options: f.options } : {}),
+    }));
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PAGE_TIMEOUT_MS * 2);
+
+  try {
+    const isPdf = mimeType === "application/pdf";
+    const result = await generateText({
+      model: resolved.model,
+      output: Output.object({ schema: ExtractedAnswersSchema }),
+      abortSignal: controller.signal,
+      messages: [
+        { role: "system", content: ANSWER_EXTRACT_SYSTEM_PROMPT },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `Form fields to extract:\n${JSON.stringify(fieldList, null, 2)}\n\nExtract the filled-in answers from the form image below.`,
+            },
+            isPdf
+              ? ({
+                  type: "file",
+                  data: fileBase64,
+                  mediaType: "application/pdf",
+                } as const)
+              : ({
+                  type: "image",
+                  image: fileBase64,
+                  mediaType: mimeType,
+                } as const),
+          ],
+        },
+      ],
+    });
+
+    const extracted = result.output as z.infer<
+      typeof ExtractedAnswersSchema
+    > | null;
+    if (!extracted?.answers?.length) {
+      return {
+        success: false,
+        error:
+          "No answers could be extracted from this image. Try a clearer photo.",
+      };
+    }
+
+    const validIds = new Set(fields.map((f) => f.id));
+    const answers: Record<string, string> = {};
+    for (const item of extracted.answers) {
+      if (validIds.has(item.fieldId) && item.value.trim()) {
+        answers[item.fieldId] = item.value.trim();
+      }
+    }
+
+    if (Object.keys(answers).length === 0) {
+      return {
+        success: false,
+        error:
+          "AI found answers but none matched this form's fields. Try a clearer photo.",
+      };
+    }
+
+    return { success: true, answers };
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      return {
+        success: false,
+        error: "Extraction timed out. Try a clearer or smaller photo.",
+      };
+    }
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "Extraction failed.",
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // --- Public: PDF extraction ---
 
 export async function extractFormFromPdf(
-  pdfBase64: string
+  pdfBase64: string,
 ): Promise<ScanResult> {
   const resolved = await resolveModel();
 
@@ -1346,7 +1554,8 @@ export async function extractFormFromPdf(
   if (error === "timeout") {
     return {
       success: false,
-      error: "PDF scan timed out after 60 seconds. Try uploading individual page photos instead.",
+      error:
+        "PDF scan timed out after 60 seconds. Try uploading individual page photos instead.",
     };
   }
   if (error) {

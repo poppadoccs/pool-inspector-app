@@ -134,7 +134,6 @@ export function PhotoUpload({ jobId }: { jobId: string }) {
         ref={cameraInputRef}
         type="file"
         accept="image/jpeg,image/png"
-        capture="environment"
         className="hidden"
         onChange={handleChange}
       />

@@ -409,7 +409,6 @@ export function ScanFlow({ mockMode = false }: { mockMode?: boolean }) {
               ref={cameraRef}
               type="file"
               accept="image/jpeg,image/png"
-              capture="environment"
               className="hidden"
               onChange={handleCameraChange}
             />
