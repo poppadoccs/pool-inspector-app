@@ -8,6 +8,9 @@ import {
   type UseFormRegister,
   type Control,
 } from "react-hook-form";
+import imageCompression from "browser-image-compression";
+import { COMPRESSION_OPTIONS } from "@/lib/photos";
+import { savePhotoMetadata } from "@/lib/actions/photos";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -202,6 +205,7 @@ export function JobForm({
               control={control}
               errors={errors}
               disabled={disabled}
+              jobId={jobId}
             />
           </div>
         );
@@ -216,6 +220,105 @@ export function JobForm({
   );
 }
 
+// --- Photo field sub-component (needs useState — can't live inside a switch-case) ---
+
+function PhotoFieldInput({
+  field,
+  control,
+  errors,
+  disabled,
+  jobId,
+}: {
+  field: FormField;
+  control: Control<FormData>;
+  errors: FieldErrors<FormData>;
+  disabled: boolean;
+  jobId: string;
+}) {
+  const [uploading, setUploading] = useState(false);
+  const error = errors[field.id]?.message as string | undefined;
+  const fieldId = `field-${field.id}`;
+
+  return (
+    <Controller
+      name={field.id}
+      control={control}
+      render={({ field: rhf }) => (
+        <div className="space-y-2">
+          <Label htmlFor={fieldId} className="text-base">
+            {field.label}
+            {field.required && <span className="ml-0.5 text-red-500">*</span>}
+          </Label>
+          {rhf.value ? (
+            <div className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-sm text-green-700">
+              <Camera className="size-4" />
+              Photo captured
+            </div>
+          ) : (
+            <label className="flex min-h-[100px] w-full cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-zinc-300 bg-zinc-50 p-6 active:bg-zinc-100">
+              {uploading ? (
+                <>
+                  <Loader2 className="size-8 animate-spin text-zinc-400" />
+                  <span className="text-sm text-zinc-500">Uploading...</span>
+                </>
+              ) : (
+                <>
+                  <Camera className="size-8 text-zinc-400" />
+                  <span className="text-sm text-zinc-500">
+                    Tap to take photo
+                  </span>
+                </>
+              )}
+              <input
+                type="file"
+                accept="image/*"
+                disabled={disabled || uploading}
+                className="sr-only"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  setUploading(true);
+                  try {
+                    const compressed = await imageCompression(
+                      file,
+                      COMPRESSION_OPTIONS,
+                    );
+                    const fd = new FormData();
+                    fd.append("file", compressed);
+                    fd.append(
+                      "filename",
+                      file.name.replace(/[^a-zA-Z0-9._-]/g, "_"),
+                    );
+                    const resp = await fetch("/api/photos/upload", {
+                      method: "POST",
+                      body: fd,
+                    });
+                    if (!resp.ok) throw new Error("Upload failed");
+                    const { url } = await resp.json();
+                    rhf.onChange(url);
+                    await savePhotoMetadata(jobId, {
+                      url,
+                      filename: file.name,
+                      size: compressed.size,
+                    });
+                  } catch (err) {
+                    toast.error(
+                      `Photo upload failed: ${err instanceof Error ? err.message : "Unknown error"}`,
+                    );
+                  } finally {
+                    setUploading(false);
+                  }
+                }}
+              />
+            </label>
+          )}
+          {error && <p className="text-sm text-red-600">{error}</p>}
+        </div>
+      )}
+    />
+  );
+}
+
 // --- Field renderer ---
 
 function FieldRenderer({
@@ -224,12 +327,14 @@ function FieldRenderer({
   control,
   errors,
   disabled = false,
+  jobId,
 }: {
   field: FormField;
   register: UseFormRegister<FormData>;
   control: Control<FormData>;
   errors: FieldErrors<FormData>;
   disabled?: boolean;
+  jobId: string;
 }) {
   const error = errors[field.id]?.message as string | undefined;
   const fieldId = `field-${field.id}`;
@@ -415,46 +520,12 @@ function FieldRenderer({
 
     case "photo":
       return (
-        <Controller
-          name={field.id}
+        <PhotoFieldInput
+          field={field}
           control={control}
-          render={({ field: rhf }) => (
-            <div className="space-y-2">
-              <Label className="text-base">
-                {field.label}
-                {field.required && (
-                  <span className="ml-0.5 text-red-500">*</span>
-                )}
-              </Label>
-              {rhf.value ? (
-                <div className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-sm text-green-700">
-                  <Camera className="size-4" />
-                  Photo captured
-                </div>
-              ) : (
-                <label className="flex min-h-[100px] w-full cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-zinc-300 bg-zinc-50 p-6 active:bg-zinc-100">
-                  <Camera className="size-8 text-zinc-400" />
-                  <span className="text-sm text-zinc-500">
-                    Tap to take photo
-                  </span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    disabled={disabled}
-                    className="sr-only"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) {
-                        console.log("[photo] file selected:", file.name);
-                        rhf.onChange(file.name);
-                      }
-                    }}
-                  />
-                </label>
-              )}
-              {error && <p className="text-sm text-red-600">{error}</p>}
-            </div>
-          )}
+          errors={errors}
+          disabled={disabled}
+          jobId={jobId}
         />
       );
   }
