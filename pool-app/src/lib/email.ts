@@ -63,13 +63,14 @@ export function buildSubmissionEmail({
         <div style="width: 100%; max-width: 100%;">
           ${photos
             .map(
-              (photo) => `
+              (photo, i) => `
             <a href="${escapeHtml(photo.url)}" target="_blank" style="display: block; margin-bottom: 10px; text-decoration: none;">
               <img
                 src="${escapeHtml(photo.url)}"
-                alt="Photo"
-                width="100%"
-                style="display: block; width: 100%; max-width: 100%; height: auto; border-radius: 6px; border: 1px solid #e5e5e5;"
+                alt="Photo ${i + 1}"
+                width="550"
+                border="0"
+                style="display: block; width: 100%; max-width: 550px; height: auto; box-sizing: border-box; border-radius: 6px; border: 1px solid #e5e5e5;"
               />
             </a>`,
             )
