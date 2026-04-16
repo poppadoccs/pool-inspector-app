@@ -266,7 +266,11 @@ export async function generateJobPdf(
 
       // No URL or fetch failed — render as text
       const fallbackLines = doc.splitTextToSize(
-        rawValue ? "(photo attached)" : "—",
+        photoUrl
+          ? "[photo could not be loaded]"
+          : rawValue
+            ? "(photo attached)"
+            : "—",
         CONTENT_WIDTH - 85,
       );
       const photoBlockH =
