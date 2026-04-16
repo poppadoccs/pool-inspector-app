@@ -30,7 +30,7 @@ import {
   getDefaultValues,
   type FormTemplate,
   type FormField,
-  type FormData,
+  type FormData as JobFormData, // aliased to avoid collision with DOM FormData
 } from "@/lib/forms";
 import { saveFormData } from "@/lib/actions/forms";
 import { StickyFormNav } from "@/components/sticky-form-nav";
@@ -40,7 +40,7 @@ import { ImportFromPaper } from "@/components/import-from-paper";
 
 const DRAFT_KEY = (jobId: string) => `form-draft-${jobId}`;
 
-function loadDraft(jobId: string): FormData | null {
+function loadDraft(jobId: string): JobFormData | null {
   if (typeof window === "undefined") return null;
   try {
     const raw = localStorage.getItem(DRAFT_KEY(jobId));
@@ -51,7 +51,7 @@ function loadDraft(jobId: string): FormData | null {
   }
 }
 
-function saveDraftToStorage(jobId: string, data: FormData) {
+function saveDraftToStorage(jobId: string, data: JobFormData) {
   try {
     localStorage.setItem(
       DRAFT_KEY(jobId),
@@ -80,7 +80,7 @@ export function JobForm({
 }: {
   jobId: string;
   template: FormTemplate;
-  initialData: FormData | null;
+  initialData: JobFormData | null;
   disabled?: boolean;
 }) {
   const schema = useMemo(() => buildFormSchema(template), [template]);
@@ -124,14 +124,14 @@ export function JobForm({
   useEffect(() => {
     if (disabled) return;
     const subscription = watch((values) => {
-      saveDraftToStorage(jobId, values as FormData);
+      saveDraftToStorage(jobId, values as JobFormData);
 
       clearTimeout(dbSaveTimer.current);
       clearTimeout(savedTimer.current);
       dbSaveTimer.current = setTimeout(async () => {
         setSaveStatus("saving");
         try {
-          await saveFormData(jobId, values as FormData);
+          await saveFormData(jobId, values as JobFormData);
           clearDraft(jobId);
           setSaveStatus("saved");
           savedTimer.current = setTimeout(() => setSaveStatus("idle"), 2000);
@@ -151,7 +151,7 @@ export function JobForm({
     // Use setValue per field so the watch() subscription fires and auto-save triggers.
     // reset() does not reliably fire watch() in RHF v7.
     for (const [id, value] of Object.entries(extracted)) {
-      setValue(id as keyof FormData, value, {
+      setValue(id as keyof JobFormData, value, {
         shouldDirty: true,
         shouldTouch: true,
         shouldValidate: true,
@@ -213,7 +213,7 @@ export function JobForm({
 
       <StickyFormNav
         jobId={jobId}
-        getValues={() => getValues() as FormData}
+        getValues={() => getValues() as JobFormData}
         disabled={disabled}
       />
     </div>
@@ -230,8 +230,8 @@ function PhotoFieldInput({
   jobId,
 }: {
   field: FormField;
-  control: Control<FormData>;
-  errors: FieldErrors<FormData>;
+  control: Control<JobFormData>;
+  errors: FieldErrors<JobFormData>;
   disabled: boolean;
   jobId: string;
 }) {
@@ -295,12 +295,13 @@ function PhotoFieldInput({
                     });
                     if (!resp.ok) throw new Error("Upload failed");
                     const { url } = await resp.json();
-                    rhf.onChange(url);
                     await savePhotoMetadata(jobId, {
                       url,
                       filename: file.name,
                       size: compressed.size,
                     });
+                    // Only mark field populated after metadata is confirmed saved
+                    rhf.onChange(url);
                   } catch (err) {
                     toast.error(
                       `Photo upload failed: ${err instanceof Error ? err.message : "Unknown error"}`,
@@ -330,9 +331,9 @@ function FieldRenderer({
   jobId,
 }: {
   field: FormField;
-  register: UseFormRegister<FormData>;
-  control: Control<FormData>;
-  errors: FieldErrors<FormData>;
+  register: UseFormRegister<JobFormData>;
+  control: Control<JobFormData>;
+  errors: FieldErrors<JobFormData>;
   disabled?: boolean;
   jobId: string;
 }) {
