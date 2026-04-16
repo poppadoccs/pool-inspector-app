@@ -250,7 +250,8 @@ export async function generateJobPdf(
         let imgHeight = (imgProps.height / imgProps.width) * CONTENT_WIDTH;
         if (imgHeight > 180) imgHeight = 180;
 
-        if (y + imgHeight + 15 > 280) {
+        // Budget: 5 (label) + imgHeight + 13 (bottom padding) = imgHeight + 18
+        if (y + imgHeight + 18 > 280) {
           doc.addPage();
           y = MARGIN;
         }
@@ -272,6 +273,10 @@ export async function generateJobPdf(
         );
         y += imgHeight + 13;
       } catch {
+        if (y + 8 > 280) {
+          doc.addPage();
+          y = MARGIN;
+        }
         doc.setFontSize(9);
         doc.setFont("helvetica", "italic");
         doc.text(`[Photo could not be loaded: ${photo.filename}]`, MARGIN, y);
