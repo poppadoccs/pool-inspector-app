@@ -23,18 +23,30 @@ export async function saveFormData(jobId: string, formData: FormData) {
     .filter((id) => !payloadKeys.has(id));
 
   console.log(
-    `[save] Job ${jobId}: ${payloadKeys.size} keys, template expects ${templateFields.length}, missing ${missingIds.length}`
+    `[save] Job ${jobId}: ${payloadKeys.size} keys, template expects ${templateFields.length}, missing ${missingIds.length}`,
   );
 
-  if (templateFields.length >= 20 && missingIds.length > templateFields.length * 0.5) {
+  if (
+    templateFields.length >= 20 &&
+    missingIds.length > templateFields.length * 0.5
+  ) {
     const msg = `Data integrity error: ${missingIds.length}/${templateFields.length} expected field IDs missing from payload. Aborting save.`;
     console.error(`[save] ${msg}`);
     throw new Error(msg);
   }
 
+  // Preserve any server-managed sentinels (convention: "__"-prefixed keys like
+  // __photoAssignmentsReviewed) that the form UI doesn't know about. Without
+  // this, a routine form auto-save would silently wipe the reviewed flag and
+  // Pass 2 in generate-pdf would re-engage, undoing the admin's assignments.
+  const existing = (job.formData ?? {}) as Record<string, unknown>;
+  const sentinels = Object.fromEntries(
+    Object.entries(existing).filter(([k]) => k.startsWith("__")),
+  );
+
   await db.job.update({
     where: { id: jobId },
-    data: { formData },
+    data: { formData: { ...sentinels, ...formData } as unknown as object },
   });
 
   revalidatePath(`/jobs/${jobId}`);
