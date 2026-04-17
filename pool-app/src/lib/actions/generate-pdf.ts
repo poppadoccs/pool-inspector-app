@@ -155,17 +155,27 @@ export async function generateJobPdf(
   // Queue of gallery-only photos — those uploaded via PhotoUpload that aren't
   // bound to any photo field via formData. Consumed only by Q108 "Additional
   // Photos" (and the safety drain for templates without Q108). Non-Q108 photo
-  // fields render strictly the URL in their own formData entry, so a gallery
-  // photo can never masquerade as the answer to an unrelated question.
+  // fields render strictly the photo resolved from their own formData entry,
+  // so a gallery photo can never masquerade as the answer to an unrelated
+  // question.
+  const allJobPhotosArr = (job.photos as PhotoMetadata[] | null) ?? [];
+  // Legacy jobs stored photo-field values as filenames instead of URLs.
+  // This lookup lets us resolve those back to their uploaded photo URL.
+  const filenameToUrl = new Map<string, string>(
+    allJobPhotosArr.map((p) => [p.filename, p.url]),
+  );
+  const resolvePhotoValue = (raw: unknown): string | null => {
+    if (typeof raw !== "string" || !raw) return null;
+    if (raw.startsWith("http")) return raw;
+    return filenameToUrl.get(raw) ?? null;
+  };
+
   const formDataPhotoUrls = new Set<string>(
     template.fields
       .filter((f) => f.type === "photo")
-      .map((f) => formData?.[f.id])
-      .filter(
-        (v): v is string => typeof v === "string" && v.startsWith("http"),
-      ),
+      .map((f) => resolvePhotoValue(formData?.[f.id]))
+      .filter((v): v is string => v !== null),
   );
-  const allJobPhotosArr = (job.photos as PhotoMetadata[] | null) ?? [];
   const photosQueue: string[] = allJobPhotosArr
     .map((p) => p.url)
     .filter((u) => !formDataPhotoUrls.has(u));
@@ -197,10 +207,7 @@ export async function generateJobPdf(
       // By the time we reach this field every prior photo field has already
       // consumed its share, so photosQueue holds only the leftover extras.
       if (field.id === "108_additional_photos") {
-        const directUrl =
-          typeof rawValue === "string" && rawValue.startsWith("http")
-            ? rawValue
-            : null;
+        const directUrl = resolvePhotoValue(rawValue);
         const allExtra: string[] = directUrl ? [directUrl] : [];
         allExtra.push(...photosQueue.splice(0));
 
@@ -247,14 +254,11 @@ export async function generateJobPdf(
         continue;
       }
 
-      // All other photo fields render only the URL explicitly bound to this
-      // field via formData. Gallery-only photos stay queued for Q108 so they
-      // never appear as if answering a different question.
-      const directUrl =
-        typeof rawValue === "string" && rawValue.startsWith("http")
-          ? rawValue
-          : null;
-      const photoUrl = directUrl;
+      // All other photo fields render only the photo resolved from this
+      // field's formData entry (either a URL or a legacy filename). Gallery-
+      // only photos stay queued for Q108 so they never appear as if answering
+      // a different question.
+      const photoUrl = resolvePhotoValue(rawValue);
 
       if (photoUrl) {
         try {
@@ -281,13 +285,9 @@ export async function generateJobPdf(
         }
       }
 
-      // No URL or fetch failed — render as text
+      // No URL (empty field or orphan legacy filename) or fetch failed.
       const fallbackLines = doc.splitTextToSize(
-        photoUrl
-          ? "[photo could not be loaded]"
-          : rawValue
-            ? "(photo attached)"
-            : "—",
+        photoUrl ? "[photo could not be loaded]" : "—",
         CONTENT_WIDTH - 85,
       );
       const photoBlockH =
