@@ -108,12 +108,6 @@ export async function generateJobPdf(
   doc.text(COMPANY_LICENSE, PAGE_WIDTH / 2, y, { align: "center" });
   y += 5;
 
-  // Divider line
-  doc.setDrawColor(0);
-  doc.setLineWidth(0.5);
-  doc.line(MARGIN, y, PAGE_WIDTH - MARGIN, y);
-  y += 5;
-
   // --- Liability disclaimer (matches printed inspection form) ---
   const disclaimer1 =
     "This inspection is for observed condition on the date & time of the inspection only. " +
