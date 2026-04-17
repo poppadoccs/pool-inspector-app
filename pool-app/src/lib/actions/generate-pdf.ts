@@ -197,21 +197,28 @@ export async function generateJobPdf(
   }
 
   // Pass 2 gate — only runs for untouched legacy jobs.
-  //   `reviewed`:        admin has opened the assignment tool and saved. The
-  //                      sentinel pins explicit intent; sequence-guessing
-  //                      after review would overwrite "intentionally blank."
-  //   `hasAnyExplicit`:  any non-Q108 photo field has a non-empty value in
-  //                      formData. Fresh jobs (URLs) and partially-assigned
-  //                      jobs hit this; Doug-style gallery-only jobs don't.
+  //   `reviewed`:                  admin has opened the assignment tool and
+  //                                saved. Sentinel pins explicit intent;
+  //                                sequence-guessing after review would
+  //                                overwrite "intentionally blank."
+  //   `hasAnyResolvableExplicit`:  any non-Q108 photo field whose formData
+  //                                value was actually resolved in Pass 1
+  //                                (URL match, filename match, or external-
+  //                                URL pass-through). Orphan filename strings
+  //                                that point to nothing do NOT count — they
+  //                                must not block the sequential fallback.
+  //                                Example: Kimberly's job stored
+  //                                "1000004428.heic" under Q5 but the pool
+  //                                only contains "20260416_*.heic"; Pass 1
+  //                                leaves Q5 unresolved and the gate opens.
   const reviewed = formData?.["__photoAssignmentsReviewed"] === true;
-  const hasAnyExplicit = template.fields.some(
+  const hasAnyResolvableExplicit = template.fields.some(
     (f) =>
       f.type === "photo" &&
       f.id !== "108_additional_photos" &&
-      typeof formData?.[f.id] === "string" &&
-      (formData[f.id] as string).length > 0,
+      fieldResolvedUrl.has(f.id),
   );
-  if (!reviewed && !hasAnyExplicit) {
+  if (!reviewed && !hasAnyResolvableExplicit) {
     for (const field of template.fields) {
       if (field.type !== "photo") continue;
       if (field.id === "108_additional_photos") continue;

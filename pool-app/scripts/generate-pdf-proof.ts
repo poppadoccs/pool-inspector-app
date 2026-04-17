@@ -205,19 +205,72 @@ async function main() {
     let currentSection = "";
     const inlinePhotoUrls = new Set<string>();
 
-    // Build fallback queue for photo fields whose formData value isn't a blob URL
-    const formDataPhotoUrls = new Set<string>(
-      fields
-        .filter((f) => f.type === "photo")
-        .map((f) => formData?.[f.id])
-        .filter(
-          (v): v is string => typeof v === "string" && v.startsWith("http"),
-        ),
-    );
+    // --- Photo resolver — MIRRORS src/lib/actions/generate-pdf.ts (keep in sync)
+    //   Pass 1: URL match → filename match → external-URL pass-through.
+    //   Pass 2: gated sequential fallback; only fires for unreviewed jobs that
+    //           have no Pass-1-resolved explicit binding. Orphan filename
+    //           strings that resolve to nothing do NOT block the gate.
+    //   Pass 3: all unconsumed photos drain into `photosQueue` for Q108.
     const allJobPhotosArr = (job.photos as PhotoMetadata[] | null) ?? [];
+    const consumedPhotoIdxs = new Set<number>();
+    const fieldResolvedUrl = new Map<string, string>();
+
+    for (const field of fields) {
+      if (field.type !== "photo") continue;
+      const raw = formData?.[field.id];
+      if (typeof raw !== "string" || !raw) continue;
+      const matchesRaw = raw.startsWith("http")
+        ? (p: PhotoMetadata) => p.url === raw
+        : (p: PhotoMetadata) => p.filename === raw;
+      const idx = allJobPhotosArr.findIndex(
+        (p, i) => !consumedPhotoIdxs.has(i) && matchesRaw(p),
+      );
+      if (idx >= 0) {
+        consumedPhotoIdxs.add(idx);
+        fieldResolvedUrl.set(field.id, allJobPhotosArr[idx].url);
+      } else if (
+        raw.startsWith("http") &&
+        !allJobPhotosArr.some((p) => p.url === raw)
+      ) {
+        fieldResolvedUrl.set(field.id, raw);
+      }
+    }
+
+    const reviewed = formData?.["__photoAssignmentsReviewed"] === true;
+    const hasAnyResolvableExplicit = fields.some(
+      (f) =>
+        f.type === "photo" &&
+        f.id !== "108_additional_photos" &&
+        fieldResolvedUrl.has(f.id),
+    );
+    if (!reviewed && !hasAnyResolvableExplicit) {
+      for (const field of fields) {
+        if (field.type !== "photo") continue;
+        if (field.id === "108_additional_photos") continue;
+        if (fieldResolvedUrl.has(field.id)) continue;
+        const idx = allJobPhotosArr.findIndex(
+          (_, i) => !consumedPhotoIdxs.has(i),
+        );
+        if (idx < 0) continue;
+        consumedPhotoIdxs.add(idx);
+        fieldResolvedUrl.set(field.id, allJobPhotosArr[idx].url);
+      }
+    }
+
     const photosQueue: string[] = allJobPhotosArr
-      .map((p) => p.url)
-      .filter((u) => !formDataPhotoUrls.has(u));
+      .filter((_, i) => !consumedPhotoIdxs.has(i))
+      .map((p) => p.url);
+
+    // Tracing aid — prints which photo lands under each bucket so the PDF
+    // result can be cross-checked against the forensic simulation.
+    console.log(
+      `\n[resolver] reviewed=${reviewed} hasAnyResolvableExplicit=${hasAnyResolvableExplicit}`,
+    );
+    for (const f of fields.filter((f) => f.type === "photo")) {
+      const u = fieldResolvedUrl.get(f.id);
+      console.log(`  ${f.id}: ${u ?? "—"}`);
+    }
+    console.log(`  Q108 queue: ${photosQueue.length} leftover(s)`);
 
     for (const field of fields) {
       // Section header (only renders when sections exist in DB)
@@ -243,10 +296,7 @@ async function main() {
 
         // Q108 "Additional Photos" — drain ALL remaining queue photos here
         if (field.id === "108_additional_photos") {
-          const directUrl =
-            typeof rawValue === "string" && rawValue.startsWith("http")
-              ? rawValue
-              : null;
+          const directUrl = fieldResolvedUrl.get(field.id) ?? null;
           const allExtra: string[] = directUrl ? [directUrl] : [];
           allExtra.push(...photosQueue.splice(0));
 
@@ -294,12 +344,9 @@ async function main() {
           continue;
         }
 
-        // All other photo fields — consume one from queue as fallback
-        const directUrl =
-          typeof rawValue === "string" && rawValue.startsWith("http")
-            ? rawValue
-            : null;
-        const photoUrl = directUrl ?? photosQueue.shift() ?? null;
+        // All other photo fields — render only what Pass 1/Pass 2 resolved
+        // for this field. Queue drains only into Q108.
+        const photoUrl = fieldResolvedUrl.get(field.id) ?? null;
 
         if (photoUrl) {
           try {
