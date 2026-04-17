@@ -254,13 +254,17 @@ export async function generateJobPdf(
             const imgProps = doc.getImageProperties(b64);
             const { imgW, imgH } = fitPhoto(imgProps);
             const imgX = MARGIN + (CONTENT_WIDTH - imgW) / 2;
-            const preH = labelDrawn ? 0 : labelH + preLabelFailures * 5;
-            const blockH = preH + imgH + 8;
-            if (y + blockH > 280) {
-              doc.addPage();
-              y = MARGIN;
-            }
             if (!labelDrawn) {
+              // Bind the label only to the first thing rendered beneath
+              // it (a buffered error line or this image) so the heading
+              // can't orphan at the bottom. Remaining failures and the
+              // image paginate independently so the combined content
+              // can never exceed a single page.
+              const firstBelowH = preLabelFailures > 0 ? 5 : imgH + 8;
+              if (y + labelH + firstBelowH > 280) {
+                doc.addPage();
+                y = MARGIN;
+              }
               doc.setFont("helvetica", "bold");
               doc.setFontSize(9);
               doc.text(photoLabelLines, MARGIN, y);
@@ -269,12 +273,22 @@ export async function generateJobPdf(
                 doc.setFont("helvetica", "italic");
                 doc.setFontSize(8);
                 for (let i = 0; i < preLabelFailures; i++) {
+                  // First line is bound to the label above; subsequent
+                  // lines paginate on their own like post-label catches.
+                  if (i > 0 && y + 5 > 280) {
+                    doc.addPage();
+                    y = MARGIN;
+                  }
                   doc.text("[photo could not be loaded]", MARGIN, y);
                   y += 5;
                 }
                 preLabelFailures = 0;
               }
               labelDrawn = true;
+            }
+            if (y + imgH + 8 > 280) {
+              doc.addPage();
+              y = MARGIN;
             }
             doc.addImage(b64, "JPEG", imgX, y, imgW, imgH, undefined, "FAST");
             y += imgH + 6;
