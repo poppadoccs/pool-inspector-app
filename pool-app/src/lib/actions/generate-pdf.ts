@@ -159,9 +159,12 @@ export async function generateJobPdf(
   //            URLs not in the pool are still rendered as-is.
   //   Pass 2 — legacy sequential fallback: any non-Q108 photo field still
   //            unresolved claims the next unconsumed photo in template
-  //            order. Restores behavior for legacy/reopened jobs where
-  //            photos were uploaded via the gallery without per-question
-  //            binding. If photos run out, remaining fields render "—".
+  //            order. Only fires for UNREVIEWED legacy jobs with no
+  //            explicit non-Q108 bindings. Once an admin reviews photo
+  //            assignments (setting `__photoAssignmentsReviewed = true`
+  //            via the admin assignment tool), this pass is skipped so
+  //            intentionally-unassigned fields render "—" instead of
+  //            being sequence-guessed.
   //   Pass 3 — leftovers: every unconsumed photo drains under Q108 at
   //            render time via `photosQueue`.
   const allJobPhotosArr = (job.photos as PhotoMetadata[] | null) ?? [];
@@ -193,15 +196,33 @@ export async function generateJobPdf(
     // so pass 2 can claim a photo by order instead.
   }
 
-  // Pass 2 — sequential fallback for unresolved non-Q108 photo fields.
-  for (const field of template.fields) {
-    if (field.type !== "photo") continue;
-    if (field.id === "108_additional_photos") continue;
-    if (fieldResolvedUrl.has(field.id)) continue;
-    const idx = allJobPhotosArr.findIndex((_, i) => !consumedPhotoIdxs.has(i));
-    if (idx < 0) continue; // out of photos — leave unresolved → "—"
-    consumedPhotoIdxs.add(idx);
-    fieldResolvedUrl.set(field.id, allJobPhotosArr[idx].url);
+  // Pass 2 gate — only runs for untouched legacy jobs.
+  //   `reviewed`:        admin has opened the assignment tool and saved. The
+  //                      sentinel pins explicit intent; sequence-guessing
+  //                      after review would overwrite "intentionally blank."
+  //   `hasAnyExplicit`:  any non-Q108 photo field has a non-empty value in
+  //                      formData. Fresh jobs (URLs) and partially-assigned
+  //                      jobs hit this; Doug-style gallery-only jobs don't.
+  const reviewed = formData?.["__photoAssignmentsReviewed"] === true;
+  const hasAnyExplicit = template.fields.some(
+    (f) =>
+      f.type === "photo" &&
+      f.id !== "108_additional_photos" &&
+      typeof formData?.[f.id] === "string" &&
+      (formData[f.id] as string).length > 0,
+  );
+  if (!reviewed && !hasAnyExplicit) {
+    for (const field of template.fields) {
+      if (field.type !== "photo") continue;
+      if (field.id === "108_additional_photos") continue;
+      if (fieldResolvedUrl.has(field.id)) continue;
+      const idx = allJobPhotosArr.findIndex(
+        (_, i) => !consumedPhotoIdxs.has(i),
+      );
+      if (idx < 0) continue; // out of photos — leave unresolved → "—"
+      consumedPhotoIdxs.add(idx);
+      fieldResolvedUrl.set(field.id, allJobPhotosArr[idx].url);
+    }
   }
 
   // Pass 3 queue — every photo not claimed by a non-Q108 field drains
