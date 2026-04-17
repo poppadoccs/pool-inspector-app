@@ -150,35 +150,41 @@ export async function generateJobPdf(
   // --- Form fields ---
   doc.setFontSize(10);
   let currentSection = "";
-  const inlinePhotoUrls = new Set<string>();
 
-  // Queue of gallery-only photos — those uploaded via PhotoUpload that aren't
-  // bound to any photo field via formData. Consumed only by Q108 "Additional
-  // Photos" (and the safety drain for templates without Q108). Non-Q108 photo
-  // fields render strictly the photo resolved from their own formData entry,
-  // so a gallery photo can never masquerade as the answer to an unrelated
-  // question.
+  // Resolve each photo field to a photo URL in template (display) order.
+  // Each field consumes at most one photo from the pool, so duplicate
+  // filenames in `job.photos` don't collapse and two fields referencing
+  // the same filename get distinct photos (first field wins; if only one
+  // photo exists, subsequent fields render "—"). Legacy jobs match by
+  // filename; fresh jobs match by URL.
   const allJobPhotosArr = (job.photos as PhotoMetadata[] | null) ?? [];
-  // Legacy jobs stored photo-field values as filenames instead of URLs.
-  // This lookup lets us resolve those back to their uploaded photo URL.
-  const filenameToUrl = new Map<string, string>(
-    allJobPhotosArr.map((p) => [p.filename, p.url]),
-  );
-  const resolvePhotoValue = (raw: unknown): string | null => {
-    if (typeof raw !== "string" || !raw) return null;
-    if (raw.startsWith("http")) return raw;
-    return filenameToUrl.get(raw) ?? null;
-  };
+  const consumedPhotoIdxs = new Set<number>();
+  const fieldResolvedUrl = new Map<string, string>();
+  for (const field of template.fields) {
+    if (field.type !== "photo") continue;
+    const raw = formData?.[field.id];
+    if (typeof raw !== "string" || !raw) continue;
+    const matchesRaw = raw.startsWith("http")
+      ? (p: PhotoMetadata) => p.url === raw
+      : (p: PhotoMetadata) => p.filename === raw;
+    const idx = allJobPhotosArr.findIndex(
+      (p, i) => !consumedPhotoIdxs.has(i) && matchesRaw(p),
+    );
+    if (idx >= 0) {
+      consumedPhotoIdxs.add(idx);
+      fieldResolvedUrl.set(field.id, allJobPhotosArr[idx].url);
+    } else if (raw.startsWith("http")) {
+      // URL value with no matching photo in the pool — still render it.
+      fieldResolvedUrl.set(field.id, raw);
+    }
+    // Orphan filename (no match in pool) → leave unresolved; fallback "—".
+  }
 
-  const formDataPhotoUrls = new Set<string>(
-    template.fields
-      .filter((f) => f.type === "photo")
-      .map((f) => resolvePhotoValue(formData?.[f.id]))
-      .filter((v): v is string => v !== null),
-  );
+  // Queue of photos not claimed by any photo field. Consumed only by Q108
+  // "Additional Photos" (and the safety drain for templates without Q108).
   const photosQueue: string[] = allJobPhotosArr
-    .map((p) => p.url)
-    .filter((u) => !formDataPhotoUrls.has(u));
+    .filter((_, i) => !consumedPhotoIdxs.has(i))
+    .map((p) => p.url);
 
   for (const field of template.fields) {
     // Section header
@@ -207,48 +213,71 @@ export async function generateJobPdf(
       // By the time we reach this field every prior photo field has already
       // consumed its share, so photosQueue holds only the leftover extras.
       if (field.id === "108_additional_photos") {
-        const directUrl = resolvePhotoValue(rawValue);
+        const directUrl = fieldResolvedUrl.get(field.id) ?? null;
         const allExtra: string[] = directUrl ? [directUrl] : [];
         allExtra.push(...photosQueue.splice(0));
-
-        if (y + photoLabelLines.length * 4 + 4 > 280) {
-          doc.addPage();
-          y = MARGIN;
-        }
-        doc.text(photoLabelLines, MARGIN, y);
-        y += photoLabelLines.length * 4 + 4;
+        const labelH = photoLabelLines.length * 4 + 4;
 
         if (allExtra.length === 0) {
+          if (y + labelH + 5 > 280) {
+            doc.addPage();
+            y = MARGIN;
+          }
+          doc.text(photoLabelLines, MARGIN, y);
+          y += labelH;
           doc.setFont("helvetica", "normal");
           doc.text("—", MARGIN, y);
           y += 5;
-        } else {
-          for (const url of allExtra) {
-            try {
-              const res = await fetch(url);
-              const buf = await res.arrayBuffer();
-              const b64 = Buffer.from(buf).toString("base64");
-              const imgProps = doc.getImageProperties(b64);
-              const { imgW, imgH } = fitPhoto(imgProps);
-              const imgX = MARGIN + (CONTENT_WIDTH - imgW) / 2;
-              if (y + imgH + 8 > 280) {
-                doc.addPage();
-                y = MARGIN;
-              }
-              doc.addImage(b64, "JPEG", imgX, y, imgW, imgH, undefined, "FAST");
-              inlinePhotoUrls.add(url);
-              y += imgH + 6;
-            } catch {
-              // mark failed photo so it isn't silently dropped
-              if (y + 5 > 280) {
-                doc.addPage();
-                y = MARGIN;
-              }
-              doc.setFont("helvetica", "italic");
-              doc.setFontSize(8);
-              doc.text("[photo could not be loaded]", MARGIN, y);
-              y += 5;
+          continue;
+        }
+
+        // Defer the label draw so it paginates together with the first
+        // image that successfully renders — avoids a stranded "Additional
+        // Photos" heading at the bottom of a page with its images on the
+        // next page.
+        let labelDrawn = false;
+        for (const url of allExtra) {
+          try {
+            const res = await fetch(url);
+            const buf = await res.arrayBuffer();
+            const b64 = Buffer.from(buf).toString("base64");
+            const imgProps = doc.getImageProperties(b64);
+            const { imgW, imgH } = fitPhoto(imgProps);
+            const imgX = MARGIN + (CONTENT_WIDTH - imgW) / 2;
+            const blockH = (labelDrawn ? 0 : labelH) + imgH + 8;
+            if (y + blockH > 280) {
+              doc.addPage();
+              y = MARGIN;
             }
+            if (!labelDrawn) {
+              doc.setFont("helvetica", "bold");
+              doc.setFontSize(9);
+              doc.text(photoLabelLines, MARGIN, y);
+              y += labelH;
+              labelDrawn = true;
+            }
+            doc.addImage(b64, "JPEG", imgX, y, imgW, imgH, undefined, "FAST");
+            y += imgH + 6;
+          } catch {
+            if (!labelDrawn) {
+              if (y + labelH + 5 > 280) {
+                doc.addPage();
+                y = MARGIN;
+              }
+              doc.setFont("helvetica", "bold");
+              doc.setFontSize(9);
+              doc.text(photoLabelLines, MARGIN, y);
+              y += labelH;
+              labelDrawn = true;
+            }
+            if (y + 5 > 280) {
+              doc.addPage();
+              y = MARGIN;
+            }
+            doc.setFont("helvetica", "italic");
+            doc.setFontSize(8);
+            doc.text("[photo could not be loaded]", MARGIN, y);
+            y += 5;
           }
         }
         continue;
@@ -258,7 +287,7 @@ export async function generateJobPdf(
       // field's formData entry (either a URL or a legacy filename). Gallery-
       // only photos stay queued for Q108 so they never appear as if answering
       // a different question.
-      const photoUrl = resolvePhotoValue(rawValue);
+      const photoUrl = fieldResolvedUrl.get(field.id) ?? null;
 
       if (photoUrl) {
         try {
@@ -278,7 +307,6 @@ export async function generateJobPdf(
           y += photoLabelLines.length * 4 + 3;
           doc.addImage(b64, "JPEG", imgX, y, imgW, imgH, undefined, "FAST");
           y += imgH + 8;
-          inlinePhotoUrls.add(photoUrl);
           continue;
         } catch {
           // fall through to text fallback
@@ -358,7 +386,6 @@ export async function generateJobPdf(
         y = MARGIN;
       }
       doc.addImage(b64, "JPEG", imgX, y, imgW, imgH, undefined, "FAST");
-      inlinePhotoUrls.add(url);
       y += imgH + 6;
     } catch {
       if (y + 5 > 280) {
