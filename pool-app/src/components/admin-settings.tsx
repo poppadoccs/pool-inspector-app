@@ -15,6 +15,7 @@ import {
   KeyRound,
   Mail,
   FileDown,
+  RotateCcw,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -23,6 +24,7 @@ import {
   changePin,
   archiveJob,
   deleteJob,
+  reopenJob,
 } from "@/lib/actions/settings";
 import { generateJobPdf } from "@/lib/actions/generate-pdf";
 import {
@@ -78,10 +80,9 @@ export function AdminSettings({
 
   // Job action state
   const [busyJob, setBusyJob] = useState<string | null>(null);
-  const [archiveDialogJob, setArchiveDialogJob] = useState<string | null>(
-    null
-  );
+  const [archiveDialogJob, setArchiveDialogJob] = useState<string | null>(null);
   const [deleteDialogJob, setDeleteDialogJob] = useState<string | null>(null);
+  const [reopenDialogJob, setReopenDialogJob] = useState<string | null>(null);
 
   async function handleUnlock() {
     setChecking(true);
@@ -152,10 +153,23 @@ export function AdminSettings({
     setBusyJob(null);
   }
 
+  async function handleReopen(jobId: string) {
+    setBusyJob(jobId);
+    setReopenDialogJob(null);
+    const result = await reopenJob(pin, jobId);
+    if (result.success) {
+      toast.success("Job reopened for editing");
+      router.push(`/jobs/${jobId}`);
+    } else {
+      toast.error(result.error || "Failed to reopen");
+      setBusyJob(null);
+    }
+  }
+
   if (!unlocked) {
     return (
       <Card className="mt-6">
-        <CardContent className="p-4 space-y-4">
+        <CardContent className="space-y-4 p-4">
           <div className="flex items-center gap-2 text-zinc-600">
             <Lock className="size-5" />
             <span className="text-base font-medium">Enter admin PIN</span>
@@ -174,14 +188,12 @@ export function AdminSettings({
               onKeyDown={(e) => {
                 if (e.key === "Enter" && pin.trim()) handleUnlock();
               }}
-              className="min-h-[48px] text-lg text-center tracking-widest"
+              className="min-h-[48px] text-center text-lg tracking-widest"
             />
-            {pinError && (
-              <p className="text-sm text-red-600">{pinError}</p>
-            )}
+            {pinError && <p className="text-sm text-red-600">{pinError}</p>}
           </div>
           <Button
-            className="w-full min-h-[48px] text-base"
+            className="min-h-[48px] w-full text-base"
             disabled={!pin.trim() || checking}
             onClick={handleUnlock}
           >
@@ -194,7 +206,7 @@ export function AdminSettings({
           <Link href="/">
             <Button
               variant="ghost"
-              className="w-full min-h-[48px] text-base text-zinc-500"
+              className="min-h-[48px] w-full text-base text-zinc-500"
             >
               Back to Jobs
             </Button>
@@ -208,7 +220,7 @@ export function AdminSettings({
     <div className="mt-6 space-y-6">
       {/* Job Management */}
       <Card>
-        <CardContent className="p-4 space-y-4">
+        <CardContent className="space-y-4 p-4">
           <div className="flex items-center gap-2 text-zinc-700">
             <Archive className="size-5" />
             <span className="text-base font-semibold">
@@ -217,7 +229,7 @@ export function AdminSettings({
           </div>
 
           {allJobs.length === 0 ? (
-            <p className="text-sm text-zinc-500 py-2">No jobs to manage.</p>
+            <p className="py-2 text-sm text-zinc-500">No jobs to manage.</p>
           ) : (
             <div className="space-y-2">
               {allJobs.map((job) => {
@@ -246,14 +258,14 @@ export function AdminSettings({
                         </p>
                       </div>
                       {isBusy && (
-                        <Loader2 className="size-4 animate-spin text-zinc-400 ml-2" />
+                        <Loader2 className="ml-2 size-4 animate-spin text-zinc-400" />
                       )}
                     </div>
 
                     {/* Signature preview for submitted jobs */}
                     {job.workerSignature && job.status === "SUBMITTED" && (
                       <div className="mt-2 rounded border border-zinc-100 bg-zinc-50 p-2">
-                        <p className="text-xs text-zinc-500 mb-1">Signature</p>
+                        <p className="mb-1 text-xs text-zinc-500">Signature</p>
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
                           src={job.workerSignature}
@@ -276,13 +288,17 @@ export function AdminSettings({
                             setBusyJob(null);
                             if (result.success && result.data) {
                               // Convert data URI to Blob for reliable Safari download
-                              const byteString = atob(result.data.split(",")[1]);
+                              const byteString = atob(
+                                result.data.split(",")[1],
+                              );
                               const ab = new ArrayBuffer(byteString.length);
                               const ia = new Uint8Array(ab);
                               for (let i = 0; i < byteString.length; i++) {
                                 ia[i] = byteString.charCodeAt(i);
                               }
-                              const blob = new Blob([ab], { type: "application/pdf" });
+                              const blob = new Blob([ab], {
+                                type: "application/pdf",
+                              });
                               const url = URL.createObjectURL(blob);
                               const link = document.createElement("a");
                               link.href = url;
@@ -290,12 +306,26 @@ export function AdminSettings({
                               link.click();
                               URL.revokeObjectURL(url);
                             } else {
-                              toast.error(result.error || "PDF generation failed");
+                              toast.error(
+                                result.error || "PDF generation failed",
+                              );
                             }
                           }}
                         >
-                          <FileDown className="size-4 mr-1.5" />
+                          <FileDown className="mr-1.5 size-4" />
                           Download PDF
+                        </Button>
+                      )}
+                      {job.status === "SUBMITTED" && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="min-h-[40px] flex-1"
+                          disabled={isBusy}
+                          onClick={() => setReopenDialogJob(job.id)}
+                        >
+                          <RotateCcw className="mr-1.5 size-4" />
+                          Reopen
                         </Button>
                       )}
                       {canArchive && (
@@ -306,18 +336,18 @@ export function AdminSettings({
                           disabled={isBusy}
                           onClick={() => setArchiveDialogJob(job.id)}
                         >
-                          <Archive className="size-4 mr-1.5" />
+                          <Archive className="mr-1.5 size-4" />
                           Archive
                         </Button>
                       )}
                       <Button
                         variant="outline"
                         size="sm"
-                        className="min-h-[40px] flex-1 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
+                        className="min-h-[40px] flex-1 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
                         disabled={isBusy}
                         onClick={() => setDeleteDialogJob(job.id)}
                       >
-                        <Trash2 className="size-4 mr-1.5" />
+                        <Trash2 className="mr-1.5 size-4" />
                         Delete
                       </Button>
                     </div>
@@ -353,6 +383,39 @@ export function AdminSettings({
                       </AlertDialogContent>
                     </AlertDialog>
 
+                    {/* Reopen confirmation */}
+                    <AlertDialog
+                      open={reopenDialogJob === job.id}
+                      onOpenChange={(open) => {
+                        if (!open) setReopenDialogJob(null);
+                      }}
+                    >
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>
+                            Reopen &ldquo;{displayName}&rdquo; for editing?
+                          </AlertDialogTitle>
+                          <AlertDialogDescription>
+                            The job moves back to Draft. Photos and form data
+                            are kept. The worker signature and submission stamp
+                            are cleared so the next submit produces a fresh PDF
+                            and email.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel className="min-h-[44px]">
+                            Cancel
+                          </AlertDialogCancel>
+                          <AlertDialogAction
+                            className="min-h-[44px]"
+                            onClick={() => handleReopen(job.id)}
+                          >
+                            Yes, Reopen
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+
                     {/* Delete confirmation — stronger warning */}
                     <AlertDialog
                       open={deleteDialogJob === job.id}
@@ -374,7 +437,7 @@ export function AdminSettings({
                             Cancel
                           </AlertDialogCancel>
                           <AlertDialogAction
-                            className="min-h-[44px] bg-red-600 hover:bg-red-700 text-white"
+                            className="min-h-[44px] bg-red-600 text-white hover:bg-red-700"
                             onClick={() => handleDelete(job.id)}
                           >
                             Yes, Delete Forever
@@ -392,7 +455,7 @@ export function AdminSettings({
 
       {/* Email Setting */}
       <Card>
-        <CardContent className="p-4 space-y-4">
+        <CardContent className="space-y-4 p-4">
           <div className="flex items-center gap-2 text-zinc-700">
             <Mail className="size-5" />
             <span className="text-base font-semibold">Submission Email</span>
@@ -415,7 +478,7 @@ export function AdminSettings({
             </p>
           </div>
           <Button
-            className="w-full min-h-[48px] gap-2 text-base"
+            className="min-h-[48px] w-full gap-2 text-base"
             disabled={!email.trim() || saving}
             onClick={handleSaveEmail}
           >
@@ -436,7 +499,7 @@ export function AdminSettings({
 
       {/* PIN Change */}
       <Card>
-        <CardContent className="p-4 space-y-4">
+        <CardContent className="space-y-4 p-4">
           <div className="flex items-center gap-2 text-zinc-700">
             <KeyRound className="size-5" />
             <span className="text-base font-semibold">Change PIN</span>
@@ -452,7 +515,7 @@ export function AdminSettings({
               placeholder="Enter new PIN"
               value={newPin}
               onChange={(e) => setNewPin(e.target.value)}
-              className="min-h-[48px] text-lg text-center tracking-widest"
+              className="min-h-[48px] text-center text-lg tracking-widest"
             />
           </div>
           <div className="space-y-1.5">
@@ -466,12 +529,12 @@ export function AdminSettings({
               placeholder="Confirm new PIN"
               value={confirmPin}
               onChange={(e) => setConfirmPin(e.target.value)}
-              className="min-h-[48px] text-lg text-center tracking-widest"
+              className="min-h-[48px] text-center text-lg tracking-widest"
             />
           </div>
           <Button
             variant="outline"
-            className="w-full min-h-[48px] gap-2 text-base"
+            className="min-h-[48px] w-full gap-2 text-base"
             disabled={!newPin.trim() || !confirmPin.trim() || changingPin}
             onClick={() => setPinDialogOpen(true)}
           >
@@ -491,10 +554,7 @@ export function AdminSettings({
             PIN must be at least 4 digits, numbers only.
           </p>
 
-          <AlertDialog
-            open={pinDialogOpen}
-            onOpenChange={setPinDialogOpen}
-          >
+          <AlertDialog open={pinDialogOpen} onOpenChange={setPinDialogOpen}>
             <AlertDialogContent>
               <AlertDialogHeader>
                 <AlertDialogTitle>Change admin PIN?</AlertDialogTitle>
@@ -523,7 +583,7 @@ export function AdminSettings({
       <Link href="/">
         <Button
           variant="ghost"
-          className="w-full min-h-[48px] text-base text-zinc-500"
+          className="min-h-[48px] w-full text-base text-zinc-500"
         >
           Back to Jobs
         </Button>

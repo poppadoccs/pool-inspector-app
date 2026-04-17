@@ -27,9 +27,7 @@ async function checkPin(pin: string): Promise<boolean> {
   return constantTimeCompare(pin, correctPin);
 }
 
-export async function verifyPin(
-  pin: string
-): Promise<{ valid: boolean }> {
+export async function verifyPin(pin: string): Promise<{ valid: boolean }> {
   return { valid: await checkPin(pin) };
 }
 
@@ -42,7 +40,7 @@ export async function getRecipientEmail(): Promise<string> {
 
 export async function saveRecipientEmail(
   pin: string,
-  email: string
+  email: string,
 ): Promise<{ success: boolean; error?: string }> {
   if (!(await checkPin(pin))) {
     return { success: false, error: "Incorrect PIN" };
@@ -64,7 +62,7 @@ export async function saveRecipientEmail(
 
 export async function changePin(
   currentPin: string,
-  newPin: string
+  newPin: string,
 ): Promise<{ success: boolean; error?: string }> {
   if (!(await checkPin(currentPin))) {
     return { success: false, error: "Current PIN is incorrect" };
@@ -89,7 +87,7 @@ export async function changePin(
 
 export async function archiveJob(
   pin: string,
-  jobId: string
+  jobId: string,
 ): Promise<{ success: boolean; error?: string }> {
   if (!(await checkPin(pin))) {
     return { success: false, error: "Incorrect PIN" };
@@ -113,9 +111,44 @@ export async function archiveJob(
   return { success: true };
 }
 
+export async function reopenJob(
+  pin: string,
+  jobId: string,
+): Promise<{ success: boolean; error?: string }> {
+  if (!(await checkPin(pin))) {
+    return { success: false, error: "Incorrect PIN" };
+  }
+
+  const job = await db.job.findUnique({ where: { id: jobId } });
+  if (!job) {
+    return { success: false, error: "Job not found" };
+  }
+  if (job.status !== "SUBMITTED") {
+    return { success: false, error: "Only submitted jobs can be reopened" };
+  }
+
+  // Move back to DRAFT and clear submission fingerprint so the status badge,
+  // "Submitted by" header, and signature block all reflect a fresh draft.
+  // Photos and formData are preserved so the office only has to edit what changed.
+  await db.job.update({
+    where: { id: jobId },
+    data: {
+      status: "DRAFT",
+      submittedBy: null,
+      submittedAt: null,
+      workerSignature: null,
+    },
+  });
+
+  revalidatePath("/");
+  revalidatePath("/admin");
+  revalidatePath(`/jobs/${jobId}`);
+  return { success: true };
+}
+
 export async function deleteJob(
   pin: string,
-  jobId: string
+  jobId: string,
 ): Promise<{ success: boolean; error?: string }> {
   if (!(await checkPin(pin))) {
     return { success: false, error: "Incorrect PIN" };
