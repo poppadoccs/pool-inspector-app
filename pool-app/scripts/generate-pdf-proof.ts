@@ -102,15 +102,22 @@ async function main() {
       y += 7;
     }
 
+    // Title — matches the printed paper form's "Pool/Spa Inspection" heading
+    doc.setFontSize(16);
+    doc.setFont("helvetica", "bold");
+    doc.text("Pool/Spa Inspection", PAGE_WIDTH / 2, y, { align: "center" });
+    y += 7;
+
+    // Contact / license block — stacked and centered below the title so it
+    // reads as a separate section instead of being jammed under the logo.
     doc.setFontSize(9);
     doc.setFont("helvetica", "normal");
-    doc.text(
-      `${COMPANY_PHONE}  |  ${COMPANY_EMAIL}  |  ${COMPANY_LICENSE}`,
-      PAGE_WIDTH / 2,
-      y,
-      { align: "center" },
-    );
+    doc.text(COMPANY_PHONE, PAGE_WIDTH / 2, y, { align: "center" });
     y += 4;
+    doc.text(COMPANY_EMAIL, PAGE_WIDTH / 2, y, { align: "center" });
+    y += 4;
+    doc.text(COMPANY_LICENSE, PAGE_WIDTH / 2, y, { align: "center" });
+    y += 5;
 
     doc.setDrawColor(0);
     doc.setLineWidth(0.5);
