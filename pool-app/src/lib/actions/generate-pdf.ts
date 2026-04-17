@@ -151,15 +151,24 @@ export async function generateJobPdf(
   doc.setFontSize(10);
   let currentSection = "";
 
-  // Resolve each photo field to a photo URL in template (display) order.
-  // Each field consumes at most one photo from the pool, so duplicate
-  // filenames in `job.photos` don't collapse and two fields referencing
-  // the same filename get distinct photos (first field wins; if only one
-  // photo exists, subsequent fields render "—"). Legacy jobs match by
-  // filename; fresh jobs match by URL.
+  // Resolve each photo-question field to a photo URL via a 3-pass strategy.
+  // A single consumption set (`consumedPhotoIdxs`) ensures no photo is
+  // rendered twice across passes or under Q108.
+  //
+  //   Pass 1 — explicit binding: URL match, then filename match. External
+  //            URLs not in the pool are still rendered as-is.
+  //   Pass 2 — legacy sequential fallback: any non-Q108 photo field still
+  //            unresolved claims the next unconsumed photo in template
+  //            order. Restores behavior for legacy/reopened jobs where
+  //            photos were uploaded via the gallery without per-question
+  //            binding. If photos run out, remaining fields render "—".
+  //   Pass 3 — leftovers: every unconsumed photo drains under Q108 at
+  //            render time via `photosQueue`.
   const allJobPhotosArr = (job.photos as PhotoMetadata[] | null) ?? [];
   const consumedPhotoIdxs = new Set<number>();
   const fieldResolvedUrl = new Map<string, string>();
+
+  // Pass 1 — explicit binding.
   for (const field of template.fields) {
     if (field.type !== "photo") continue;
     const raw = formData?.[field.id];
@@ -177,18 +186,26 @@ export async function generateJobPdf(
       raw.startsWith("http") &&
       !allJobPhotosArr.some((p) => p.url === raw)
     ) {
-      // URL value that isn't in job.photos at all (external/older data) —
-      // still render it. Only reached when the URL was never in the pool;
-      // if it WAS in the pool and every matching entry was already consumed
-      // by an earlier field, leave unresolved so the duplicate field renders
-      // "—" instead of re-rendering the same photo.
+      // External URL never in the pool — still render it verbatim.
       fieldResolvedUrl.set(field.id, raw);
     }
-    // Orphan filename (no match in pool) → leave unresolved; fallback "—".
+    // Orphan filename / duplicate already consumed → leave unresolved
+    // so pass 2 can claim a photo by order instead.
   }
 
-  // Queue of photos not claimed by any photo field. Consumed only by Q108
-  // "Additional Photos" (and the safety drain for templates without Q108).
+  // Pass 2 — sequential fallback for unresolved non-Q108 photo fields.
+  for (const field of template.fields) {
+    if (field.type !== "photo") continue;
+    if (field.id === "108_additional_photos") continue;
+    if (fieldResolvedUrl.has(field.id)) continue;
+    const idx = allJobPhotosArr.findIndex((_, i) => !consumedPhotoIdxs.has(i));
+    if (idx < 0) continue; // out of photos — leave unresolved → "—"
+    consumedPhotoIdxs.add(idx);
+    fieldResolvedUrl.set(field.id, allJobPhotosArr[idx].url);
+  }
+
+  // Pass 3 queue — every photo not claimed by a non-Q108 field drains
+  // under Q108 "Additional Photos" (or the safety drain if Q108 is absent).
   const photosQueue: string[] = allJobPhotosArr
     .filter((_, i) => !consumedPhotoIdxs.has(i))
     .map((p) => p.url);
