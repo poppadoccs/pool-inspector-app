@@ -90,8 +90,9 @@ None yet.
 | 260416-krc | fix form photo fields to upload blob and populate job.photos | 2026-04-16 | 93be93a | [260416-krc](./quick/260416-krc-fix-form-photo-fields-to-upload-blob-and/) |
 | 260416-mdz | restore numbered question fidelity and inline photo placement in PDF | 2026-04-16 | b796f85 | [260416-mdz](./quick/260416-mdz-restore-numbered-question-fidelity-and-i/) |
 | 260416-sec | remove all section headings, inline photos queue fallback, proof PDF | 2026-04-16 | c1476f6 | — |
+| 260416-sac | PDF polish: restore title, reposition contact/license block, normalize photo sizing | 2026-04-17 | ead6897 | [260416-sac](./quick/260416-sac-pdf-polish-restore-title-reposition-cont/) |
 
-Last activity: 2026-04-16 — Removed all section headings from DB template (pure numbered list), fixed photo queue fallback for old jobs, fixed inlinePhotoUrls race (Codex), generated proof PDF (10 pages, 6 inline photos)
+Last activity: 2026-04-17 — Restored "Pool/Spa Inspection" title under logo, restacked contact block (phone/email/license), normalized photo sizing with fitPhoto helper (MAX_W 130mm, MAX_H 95mm, MIN_W 70mm)
 
 ## Session Continuity
 
