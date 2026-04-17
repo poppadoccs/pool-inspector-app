@@ -126,11 +126,7 @@ export async function generateJobPdf(
   doc.setFont("helvetica", "normal");
   const d2Lines = doc.splitTextToSize(disclaimer2, CONTENT_WIDTH);
   doc.text(d2Lines, MARGIN, y);
-  y += d2Lines.length * 3.5 + 4;
-
-  doc.setLineWidth(0.2);
-  doc.line(MARGIN, y, PAGE_WIDTH - MARGIN, y);
-  y += 6;
+  y += d2Lines.length * 3.5 + 6;
 
   // --- Job title ---
   const jobTitle =
