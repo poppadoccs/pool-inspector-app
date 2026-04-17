@@ -173,8 +173,15 @@ export async function generateJobPdf(
     if (idx >= 0) {
       consumedPhotoIdxs.add(idx);
       fieldResolvedUrl.set(field.id, allJobPhotosArr[idx].url);
-    } else if (raw.startsWith("http")) {
-      // URL value with no matching photo in the pool — still render it.
+    } else if (
+      raw.startsWith("http") &&
+      !allJobPhotosArr.some((p) => p.url === raw)
+    ) {
+      // URL value that isn't in job.photos at all (external/older data) —
+      // still render it. Only reached when the URL was never in the pool;
+      // if it WAS in the pool and every matching entry was already consumed
+      // by an earlier field, leave unresolved so the duplicate field renders
+      // "—" instead of re-rendering the same photo.
       fieldResolvedUrl.set(field.id, raw);
     }
     // Orphan filename (no match in pool) → leave unresolved; fallback "—".
@@ -234,8 +241,12 @@ export async function generateJobPdf(
         // Defer the label draw so it paginates together with the first
         // image that successfully renders — avoids a stranded "Additional
         // Photos" heading at the bottom of a page with its images on the
-        // next page.
+        // next page. Failures before the first success are collapsed into
+        // a single fallback line rendered under the label (if no image
+        // ever succeeds) so we don't strand the label next to a lone
+        // error marker only to have the real photos land on a later page.
         let labelDrawn = false;
+        let preLabelFailures = 0;
         for (const url of allExtra) {
           try {
             const res = await fetch(url);
@@ -260,15 +271,11 @@ export async function generateJobPdf(
             y += imgH + 6;
           } catch {
             if (!labelDrawn) {
-              if (y + labelH + 5 > 280) {
-                doc.addPage();
-                y = MARGIN;
-              }
-              doc.setFont("helvetica", "bold");
-              doc.setFontSize(9);
-              doc.text(photoLabelLines, MARGIN, y);
-              y += labelH;
-              labelDrawn = true;
+              // Don't draw the label yet — a later fetch may succeed and
+              // carry the label with it. Track the failure for the all-
+              // failed fallback below.
+              preLabelFailures++;
+              continue;
             }
             if (y + 5 > 280) {
               doc.addPage();
@@ -279,6 +286,29 @@ export async function generateJobPdf(
             doc.text("[photo could not be loaded]", MARGIN, y);
             y += 5;
           }
+        }
+        if (!labelDrawn) {
+          // Every extra photo failed to fetch. Still surface the heading so
+          // the reader sees the question was present, with a consolidated
+          // error line.
+          if (y + labelH + 5 > 280) {
+            doc.addPage();
+            y = MARGIN;
+          }
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(9);
+          doc.text(photoLabelLines, MARGIN, y);
+          y += labelH;
+          doc.setFont("helvetica", "italic");
+          doc.setFontSize(8);
+          doc.text(
+            preLabelFailures > 1
+              ? `[${preLabelFailures} photos could not be loaded]`
+              : "[photo could not be loaded]",
+            MARGIN,
+            y,
+          );
+          y += 5;
         }
         continue;
       }
