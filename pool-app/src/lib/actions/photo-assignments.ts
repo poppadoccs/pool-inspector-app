@@ -172,5 +172,6 @@ export async function assignMultiFieldPhotos(
   }
 
   revalidatePath(`/jobs/${jobId}`);
+  revalidatePath("/admin");
   return { success: true };
 }
