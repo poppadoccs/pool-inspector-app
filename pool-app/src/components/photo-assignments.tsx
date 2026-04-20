@@ -89,6 +89,14 @@ export function PhotoAssignmentsEditor({
   }
 
   if (photos.length === 0) return null;
+  // When the template has no legacy single-slot photo fields (current state
+  // for Pool Install: every photo question is map-backed), this editor has
+  // nothing to offer — rendering it just prints "Unassigned"-only dropdowns
+  // above every uploaded photo, which reads as a duplicate thumbnail block
+  // above the form. Hide it entirely in that case. The per-field companion
+  // UI inside the form (MultiPhotoField / RemarksPhotosField / Q108) owns
+  // every assignment path that still exists.
+  if (photoFields.length === 0) return null;
 
   return (
     <div className="space-y-3">

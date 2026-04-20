@@ -148,4 +148,31 @@ describe("PhotoAssignmentsEditor — legacy-only target filter", () => {
     expect(values).toContain("UNASSIGNED");
     expect(select.value).toBe("UNASSIGNED");
   });
+
+  // Template where EVERY photo field is map-backed (current Pool Install state).
+  // The editor has no legitimate target to offer, so rendering it just shows
+  // "Unassigned"-only dropdowns above every uploaded photo — which reads as a
+  // duplicate thumbnail block above the form. Guard: render nothing.
+  it("renders nothing when the template has no legacy single-slot photo fields", () => {
+    const MAP_ONLY_TEMPLATE: FormTemplate = {
+      id: "t2",
+      name: "T2",
+      version: 1,
+      fields: [
+        field("5_picture_of_pool_and_spa_if_applicable", "photo", 1, "Q5"),
+        field("16_photo_of_pool_pump", "photo", 2, "Q16"),
+        field("108_additional_photos", "photo", 3, "Q108"),
+        field("15_remarks_notes", "textarea", 4, "Remarks 15"),
+      ],
+    };
+    const { container } = render(
+      <PhotoAssignmentsEditor
+        jobId="j1"
+        photos={[photo("http://test/p1"), photo("http://test/p2")]}
+        template={MAP_ONLY_TEMPLATE}
+        initialFormData={null}
+      />,
+    );
+    expect(container.firstChild).toBeNull();
+  });
 });
