@@ -11,11 +11,13 @@ export type SummaryItem = { text: string; photos: string[] };
 
 export const RESERVED_SUMMARY_KEY = "__summary_items";
 
-// Capacity policy (see plan §Summary capacity policy for math):
-//   soft = inline UI warning chip, non-blocking
-//   hard = client save-disable + server-side reject
-export const SUMMARY_PHOTO_SOFT_LIMIT = 25;
-export const SUMMARY_PHOTO_HARD_LIMIT = 40;
+// Capacity policy (customer source of truth, locked 2026-04-20):
+//   per-item cap = hard limit per individual summary item
+//   total cap    = hard limit across all summary items combined
+//   soft warn    = inline UI warning threshold, non-blocking
+export const SUMMARY_PER_ITEM_CAP = 8;
+export const SUMMARY_PHOTO_TOTAL_CAP = 30;
+export const SUMMARY_PHOTO_SOFT_WARN = 24;
 
 // Parses the reserved __summary_items key into a SummaryItem[] or returns
 // null when the value is absent or not a well-formed array of items.
