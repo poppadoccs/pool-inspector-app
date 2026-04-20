@@ -9,6 +9,11 @@ import {
   type FormTemplate,
 } from "@/lib/forms";
 import { type PhotoMetadata } from "@/lib/photos";
+import {
+  readFieldPhotoUrls,
+  remarksPhotoOwnerIdFor,
+  REMARKS_FIELD_IDS,
+} from "@/lib/multi-photo";
 import { readFileSync } from "fs";
 import { join } from "path";
 
@@ -218,6 +223,24 @@ export async function generateJobPdf(
       if (idx < 0) continue; // out of photos — leave unresolved → "—"
       consumedPhotoIdxs.add(idx);
       fieldResolvedUrl.set(field.id, allJobPhotosArr[idx].url);
+    }
+  }
+
+  // Pass 2.5 — Remarks-photo consumption. For each remarks textarea field
+  // in the template, consume any URL currently owned by the corresponding
+  // synthetic `*_remarks_notes_photos` map entry so those photos render
+  // inline under the remarks section (below) instead of draining under
+  // Q108 as leftovers. Remarks photos are map-only and authoritative; no
+  // legacy mirror, no textarea-key collision.
+  for (const remarksFieldId of REMARKS_FIELD_IDS) {
+    const ownerId = remarksPhotoOwnerIdFor(remarksFieldId);
+    if (!ownerId) continue;
+    const urls = readFieldPhotoUrls(formData, ownerId);
+    for (const url of urls) {
+      const idx = allJobPhotosArr.findIndex(
+        (p, i) => !consumedPhotoIdxs.has(i) && p.url === url,
+      );
+      if (idx >= 0) consumedPhotoIdxs.add(idx);
     }
   }
 
@@ -457,6 +480,44 @@ export async function generateJobPdf(
     doc.text(valueLines, MARGIN + labelWidth + 5, y);
 
     y += blockHeight;
+
+    // Remarks-photo attachments: for a remarks textarea field, render the
+    // photos owned via the synthetic `*_remarks_notes_photos` map entry
+    // inline below the note text. Map is authoritative; no legacy mirror
+    // for remarks photos; textarea note text was already rendered above
+    // and is completely separate from the photos bucket.
+    const remarksPhotoOwnerId = remarksPhotoOwnerIdFor(field.id);
+    if (remarksPhotoOwnerId) {
+      const remarksPhotoUrls = readFieldPhotoUrls(
+        formData,
+        remarksPhotoOwnerId,
+      );
+      for (const url of remarksPhotoUrls) {
+        try {
+          const res = await fetch(url);
+          const buf = await res.arrayBuffer();
+          const b64 = Buffer.from(buf).toString("base64");
+          const imgProps = doc.getImageProperties(b64);
+          const { imgW, imgH } = fitPhoto(imgProps);
+          const imgX = MARGIN + (CONTENT_WIDTH - imgW) / 2;
+          if (y + imgH + 6 > 280) {
+            doc.addPage();
+            y = MARGIN;
+          }
+          doc.addImage(b64, "JPEG", imgX, y, imgW, imgH, undefined, "FAST");
+          y += imgH + 4;
+        } catch {
+          if (y + 5 > 280) {
+            doc.addPage();
+            y = MARGIN;
+          }
+          doc.setFont("helvetica", "italic");
+          doc.setFontSize(8);
+          doc.text("[photo could not be loaded]", MARGIN, y);
+          y += 5;
+        }
+      }
+    }
   }
 
   // Safety drain — renders any remaining photos for jobs whose template

@@ -70,6 +70,21 @@ export const REMARKS_PHOTO_FIELD_IDS: ReadonlySet<string> = new Set([
   "102_remarks_notes_photos",
 ]);
 
+// Maps a remarks TEXTAREA field id (e.g. "15_remarks_notes") to the
+// synthetic remarks-PHOTO owner id (e.g. "15_remarks_notes_photos"), or
+// returns null when the argument is not a remarks textarea. The synthetic
+// owner ids are the keys under which the reserved map holds photo URLs
+// attached to each remarks section.
+//
+// Convention is fixed: `${fieldId}_photos`. The REMARKS_PHOTO_FIELD_IDS
+// enumeration is the source of truth for which synthetic ids exist, and
+// this helper is a typed bridge from the textarea id to that set.
+export function remarksPhotoOwnerIdFor(fieldId: string): string | null {
+  if (!REMARKS_FIELD_IDS.has(fieldId)) return null;
+  const ownerId = `${fieldId}_photos`;
+  return REMARKS_PHOTO_FIELD_IDS.has(ownerId) ? ownerId : null;
+}
+
 export const RESERVED_PHOTO_MAP_KEY = "__photoAssignmentsByField";
 export const REVIEWED_FLAG = "__photoAssignmentsReviewed";
 
