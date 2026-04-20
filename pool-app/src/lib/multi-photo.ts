@@ -52,6 +52,24 @@ export const REMARKS_FIELD_IDS: ReadonlySet<string> = new Set([
 // Uniform buffered cap across every remarks/notes field.
 export const REMARKS_PHOTO_CAP = 8;
 
+// Remarks PHOTO owner ids (locked 2026-04-20). Separate from the textarea
+// ids in REMARKS_FIELD_IDS because the product decision is:
+//   - `*_remarks_notes`        — textarea value (note text), never photos
+//   - `*_remarks_notes_photos` — synthetic photo-owner key, map-only
+// The `_photos`-suffixed ids are NOT template fields; they live only as
+// keys inside __photoAssignmentsByField and are written by the dedicated
+// assignRemarksFieldPhotos action. No legacy mirror.
+export const REMARKS_PHOTO_FIELD_IDS: ReadonlySet<string> = new Set([
+  "15_remarks_notes_photos",
+  "33_remarks_notes_photos",
+  "72_remarks_notes_photos",
+  "76_remarks_notes_photos",
+  "79_remarks_notes_photos",
+  "83_remarks_notes_photos",
+  "91_remarks_notes_photos",
+  "102_remarks_notes_photos",
+]);
+
 export const RESERVED_PHOTO_MAP_KEY = "__photoAssignmentsByField";
 export const REVIEWED_FLAG = "__photoAssignmentsReviewed";
 

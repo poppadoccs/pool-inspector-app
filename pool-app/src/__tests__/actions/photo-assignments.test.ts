@@ -16,6 +16,7 @@ vi.mock("next/cache", () => ({
 import {
   assignMultiFieldPhotos,
   assignAdditionalPhotos,
+  assignRemarksFieldPhotos,
   savePhotoAssignments,
 } from "@/lib/actions/photo-assignments";
 import { db } from "@/lib/db";
@@ -25,19 +26,25 @@ import {
   REVIEWED_FLAG,
   ADDITIONAL_PHOTOS_FIELD_ID,
   ADDITIONAL_PHOTOS_CAP,
+  REMARKS_PHOTO_CAP,
 } from "@/lib/multi-photo";
 
 const Q5 = "5_picture_of_pool_and_spa_if_applicable";
 const Q5_CAP = MULTI_PHOTO_CAPS[Q5]!; // 5, locked 2026-04-20
 const Q16 = "16_photo_of_pool_pump";
 const Q108 = ADDITIONAL_PHOTOS_FIELD_ID; // "108_additional_photos"
-const REMARKS_Q15 = "15_remarks_notes"; // canonical remarks field id
+const REMARKS_Q15 = "15_remarks_notes"; // textarea field id (note text)
+const REMARKS_Q15_PHOTOS = "15_remarks_notes_photos"; // synthetic photo owner
+const REMARKS_Q33_PHOTOS = "33_remarks_notes_photos"; // second remarks owner
 const LEGACY_SINGLE = "pool_hero_photo"; // fictional template single-slot id
 
-// Minimal FormField-like shapes for template mocking. The action only
-// reads `id` and `type`, so the other keys are just placeholders.
+// Minimal FormField-like shapes for template mocking. The actions only
+// read `id` and `type`, so the other keys are just placeholders.
 function photoField(id: string) {
   return { id, type: "photo", label: id, required: false, order: 0 };
+}
+function textareaField(id: string) {
+  return { id, type: "textarea", label: id, required: false, order: 0 };
 }
 
 function writtenFormData(): Record<string, unknown> {
@@ -582,20 +589,24 @@ describe("one-photo-one-owner enforcement", () => {
     expect(saved[LEGACY_SINGLE]).toBe("");
   });
 
-  it("structural proof: remarks fields with map entries get their mirrors updated on steal", async () => {
-    // If hasLegacyPhotoMirror ever regresses to multi-photo-only, this
-    // test fails: the remarks field's post-steal mirror would not update.
-    // Proves the predicate already accepts remarks IDs, so the upcoming
-    // assignRemarksFieldPhotos action inherits correct mirror behavior.
+  it("stealing from a remarks-photo owner preserves map-only semantics (no mirror write)", async () => {
+    // Locked 2026-04-20: remarks-photo owner ids (*_remarks_notes_photos)
+    // are map-only. If hasLegacyPhotoMirror ever regresses to include
+    // remarks-photo ids, this test fails: stealing from the remarks-photo
+    // map entry would erroneously write a mirror at the owner key.
     vi.mocked(db.job.findUnique).mockResolvedValue({
       id: "job-1",
       status: "DRAFT",
       formData: {
-        [REMARKS_Q15]: "shared", // remarks mirror
-        [RESERVED_PHOTO_MAP_KEY]: { [REMARKS_Q15]: ["shared", "r2"] },
+        [RESERVED_PHOTO_MAP_KEY]: {
+          [REMARKS_Q15_PHOTOS]: ["shared", "r2"],
+        },
       },
       photos: [photoMeta("shared"), photoMeta("r2")],
-      template: { fields: [photoField(REMARKS_Q15)] },
+      // Remarks-photo owner ids are synthetic — not in the template.
+      // The textarea note field *_remarks_notes is what lives in the
+      // template, and it holds note text, not photos.
+      template: { fields: [textareaField(REMARKS_Q15)] },
     } as never);
 
     const res = await assignAdditionalPhotos("job-1", ["shared"]);
@@ -603,11 +614,13 @@ describe("one-photo-one-owner enforcement", () => {
 
     const saved = writtenFormData();
     const map = saved[RESERVED_PHOTO_MAP_KEY] as Record<string, unknown>;
-    // Remarks map filtered.
-    expect(map[REMARKS_Q15]).toEqual(["r2"]);
-    // Remarks mirror updated to the new urls[0] — only possible if
-    // hasLegacyPhotoMirror returns true for remarks ids.
-    expect(saved[REMARKS_Q15]).toBe("r2");
+    // Remarks-photo map entry filtered as expected.
+    expect(map[REMARKS_Q15_PHOTOS]).toEqual(["r2"]);
+    // No mirror write at the synthetic owner key (map-only semantics).
+    expect(saved).not.toHaveProperty(REMARKS_Q15_PHOTOS);
+    // Textarea note field (holds note text) is NEVER touched by a
+    // photo action, regardless of steal state.
+    expect(saved).not.toHaveProperty(REMARKS_Q15);
   });
 });
 
@@ -702,18 +715,42 @@ describe("savePhotoAssignments map-awareness", () => {
     expect(saved[REVIEWED_FLAG]).toBe(true);
   });
 
-  it("rejects a remarks field target (remarks are map-backed via hasLegacyPhotoMirror)", async () => {
-    // Forward-compat proof: even before assignRemarksFieldPhotos lands,
-    // savePhotoAssignments already refuses to write remarks mirrors.
+  it("rejects a remarks textarea field target (textarea is not a photo owner)", async () => {
+    // Locked 2026-04-20: *_remarks_notes is a textarea that holds NOTE
+    // TEXT. It is not a photo owner in any sense — not map-backed, not
+    // in legacyPhotoFieldSet (template says type: "textarea"). An admin
+    // attempting to write a photo URL into the textarea via the legacy
+    // tool hits the "Unknown assignment target" error.
     vi.mocked(db.job.findUnique).mockResolvedValue({
       id: "job-1",
       status: "DRAFT",
       formData: {},
       photos: [photoMeta("r1")],
-      template: { fields: [photoField(REMARKS_Q15)] },
+      template: { fields: [textareaField(REMARKS_Q15)] },
     } as never);
 
     const res = await savePhotoAssignments("job-1", { r1: REMARKS_Q15 });
+    expect(res.success).toBe(false);
+    expect(res.error).toMatch(/unknown assignment target/i);
+    expect(db.job.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("rejects a remarks-photo owner target (map-backed via REMARKS_PHOTO_FIELD_IDS)", async () => {
+    // The synthetic *_remarks_notes_photos owner is map-backed; legacy
+    // path must refuse it so admin uses assignRemarksFieldPhotos.
+    vi.mocked(db.job.findUnique).mockResolvedValue({
+      id: "job-1",
+      status: "DRAFT",
+      formData: {},
+      photos: [photoMeta("r1")],
+      // Synthetic owner is NOT in the template; the rejection fires via
+      // the curated set, not via mapEntries observation.
+      template: { fields: [textareaField(REMARKS_Q15)] },
+    } as never);
+
+    const res = await savePhotoAssignments("job-1", {
+      r1: REMARKS_Q15_PHOTOS,
+    });
     expect(res.success).toBe(false);
     expect(res.error).toMatch(/map-backed/i);
     expect(db.job.updateMany).not.toHaveBeenCalled();
@@ -794,5 +831,265 @@ describe("savePhotoAssignments map-awareness", () => {
     expect(res.error).toMatch(/map-owned/i);
     // Atomic: no write at all, not even for the legal half of the batch.
     expect(db.job.updateMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("assignRemarksFieldPhotos", () => {
+  it("writes urls into __photoAssignmentsByField under the owner id with no mirror", async () => {
+    vi.mocked(db.job.findUnique).mockResolvedValue({
+      id: "job-1",
+      status: "DRAFT",
+      formData: { [REMARKS_Q15]: "existing note text" },
+      photos: [photoMeta("u1"), photoMeta("u2"), photoMeta("u3")],
+      template: { fields: [textareaField(REMARKS_Q15)] },
+    } as never);
+
+    const res = await assignRemarksFieldPhotos("job-1", REMARKS_Q15_PHOTOS, [
+      "u1",
+      "u2",
+      "u3",
+    ]);
+    expect(res).toEqual({ success: true });
+
+    const saved = writtenFormData();
+    const map = saved[RESERVED_PHOTO_MAP_KEY] as Record<string, unknown>;
+    // Map entry written under the synthetic owner id.
+    expect(map[REMARKS_Q15_PHOTOS]).toEqual(["u1", "u2", "u3"]);
+    // No legacy mirror at the synthetic owner key.
+    expect(saved).not.toHaveProperty(REMARKS_Q15_PHOTOS);
+    // Textarea note text is NEVER touched by a photo action — the note
+    // content survives unchanged alongside the photo map entry.
+    expect(saved[REMARKS_Q15]).toBe("existing note text");
+    expect(saved[REVIEWED_FLAG]).toBe(true);
+  });
+
+  it("one-photo-one-owner: clears a legacy single-slot mirror when a URL moves to a remarks-photo owner", async () => {
+    vi.mocked(db.job.findUnique).mockResolvedValue({
+      id: "job-1",
+      status: "DRAFT",
+      formData: { [LEGACY_SINGLE]: "shared" },
+      photos: [photoMeta("shared")],
+      template: { fields: [photoField(LEGACY_SINGLE)] },
+    } as never);
+
+    const res = await assignRemarksFieldPhotos("job-1", REMARKS_Q15_PHOTOS, [
+      "shared",
+    ]);
+    expect(res).toEqual({ success: true });
+
+    const saved = writtenFormData();
+    const map = saved[RESERVED_PHOTO_MAP_KEY] as Record<string, unknown>;
+    // Remarks-photo owner owns "shared".
+    expect(map[REMARKS_Q15_PHOTOS]).toEqual(["shared"]);
+    // Legacy mirror cleared — single ownership.
+    expect(saved[LEGACY_SINGLE]).toBe("");
+  });
+
+  it("one-photo-one-owner: steals from a map-backed multi-photo owner (Q5)", async () => {
+    vi.mocked(db.job.findUnique).mockResolvedValue({
+      id: "job-1",
+      status: "DRAFT",
+      formData: {
+        [Q5]: "shared",
+        [RESERVED_PHOTO_MAP_KEY]: { [Q5]: ["shared", "q5-only"] },
+      },
+      photos: [photoMeta("shared"), photoMeta("q5-only")],
+      template: { fields: [photoField(Q5)] },
+    } as never);
+
+    const res = await assignRemarksFieldPhotos("job-1", REMARKS_Q15_PHOTOS, [
+      "shared",
+    ]);
+    expect(res).toEqual({ success: true });
+
+    const saved = writtenFormData();
+    const map = saved[RESERVED_PHOTO_MAP_KEY] as Record<string, unknown>;
+    // Q5 lost "shared" from the map.
+    expect(map[Q5]).toEqual(["q5-only"]);
+    // Q5 mirror updated to the remaining urls[0] (multi-photo fields carry
+    // a mirror; hasLegacyPhotoMirror returns true for Q5).
+    expect(saved[Q5]).toBe("q5-only");
+    // Remarks-photo owner now owns "shared".
+    expect(map[REMARKS_Q15_PHOTOS]).toEqual(["shared"]);
+  });
+
+  it("one-photo-one-owner: steals from Q108", async () => {
+    vi.mocked(db.job.findUnique).mockResolvedValue({
+      id: "job-1",
+      status: "DRAFT",
+      formData: {
+        [RESERVED_PHOTO_MAP_KEY]: { [Q108]: ["shared", "q108-only"] },
+      },
+      photos: [photoMeta("shared"), photoMeta("q108-only")],
+      template: { fields: [] },
+    } as never);
+
+    const res = await assignRemarksFieldPhotos("job-1", REMARKS_Q15_PHOTOS, [
+      "shared",
+    ]);
+    expect(res).toEqual({ success: true });
+
+    const saved = writtenFormData();
+    const map = saved[RESERVED_PHOTO_MAP_KEY] as Record<string, unknown>;
+    expect(map[Q108]).toEqual(["q108-only"]);
+    expect(map[REMARKS_Q15_PHOTOS]).toEqual(["shared"]);
+    // Q108 has no mirror by design — no formData[Q108] written.
+    expect(saved).not.toHaveProperty(Q108);
+  });
+
+  it("rejects an over-cap payload without silent truncation (cap 8)", async () => {
+    const tooMany = Array.from(
+      { length: REMARKS_PHOTO_CAP + 1 },
+      (_, i) => `r-${i}`,
+    );
+
+    const res = await assignRemarksFieldPhotos(
+      "job-1",
+      REMARKS_Q15_PHOTOS,
+      tooMany,
+    );
+    expect(res.success).toBe(false);
+    expect(res.error).toMatch(/too many photos/i);
+    // Over-cap must reject before any DB touch.
+    expect(db.job.findUnique).not.toHaveBeenCalled();
+    expect(db.job.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("accepts a payload exactly at cap for every remarks-photo owner", async () => {
+    // Structural cap proof across all 8 remarks-photo owners — guards
+    // against a drift between REMARKS_PHOTO_CAP and the action's cap
+    // constant reference.
+    const OWNERS = [
+      "15_remarks_notes_photos",
+      "33_remarks_notes_photos",
+      "72_remarks_notes_photos",
+      "76_remarks_notes_photos",
+      "79_remarks_notes_photos",
+      "83_remarks_notes_photos",
+      "91_remarks_notes_photos",
+      "102_remarks_notes_photos",
+    ];
+    for (const owner of OWNERS) {
+      vi.clearAllMocks();
+      vi.mocked(db.job.updateMany).mockResolvedValue({ count: 1 } as never);
+
+      const urls = Array.from(
+        { length: REMARKS_PHOTO_CAP },
+        (_, i) => `${owner}-${i}`,
+      );
+      vi.mocked(db.job.findUnique).mockResolvedValue({
+        id: "job-1",
+        status: "DRAFT",
+        formData: null,
+        photos: urls.map(photoMeta),
+        template: { fields: [] },
+      } as never);
+
+      const res = await assignRemarksFieldPhotos("job-1", owner, urls);
+      expect(res).toEqual({ success: true });
+
+      const saved = writtenFormData();
+      const map = saved[RESERVED_PHOTO_MAP_KEY] as Record<string, unknown>;
+      expect(map[owner]).toEqual(urls);
+      expect(saved).not.toHaveProperty(owner); // map-only, no mirror
+    }
+  });
+
+  it("rejects a non-remarks-photo owner id (textarea id is NOT a remarks-photo owner)", async () => {
+    const res = await assignRemarksFieldPhotos("job-1", REMARKS_Q15, ["u1"]);
+    expect(res.success).toBe(false);
+    expect(res.error).toMatch(/not a remarks-photo owner/i);
+    // Early reject — must not read the DB.
+    expect(db.job.findUnique).not.toHaveBeenCalled();
+    expect(db.job.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("rejects an arbitrary (non-remarks-photo) field id", async () => {
+    const res = await assignRemarksFieldPhotos("job-1", Q5, ["u1"]);
+    expect(res.success).toBe(false);
+    expect(res.error).toMatch(/not a remarks-photo owner/i);
+    expect(db.job.findUnique).not.toHaveBeenCalled();
+    expect(db.job.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("rejects a URL not present in job.photos", async () => {
+    vi.mocked(db.job.findUnique).mockResolvedValue({
+      id: "job-1",
+      status: "DRAFT",
+      formData: null,
+      photos: [photoMeta("u1")],
+      template: { fields: [] },
+    } as never);
+
+    const res = await assignRemarksFieldPhotos("job-1", REMARKS_Q15_PHOTOS, [
+      "u1",
+      "stranger",
+    ]);
+    expect(res.success).toBe(false);
+    expect(res.error).toMatch(/unknown photo/i);
+    expect(db.job.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("rejects a non-DRAFT job", async () => {
+    vi.mocked(db.job.findUnique).mockResolvedValue({
+      id: "job-1",
+      status: "SUBMITTED",
+      formData: null,
+      photos: [photoMeta("u1")],
+      template: { fields: [] },
+    } as never);
+
+    const res = await assignRemarksFieldPhotos("job-1", REMARKS_Q15_PHOTOS, [
+      "u1",
+    ]);
+    expect(res.success).toBe(false);
+    expect(res.error).toMatch(/only draft/i);
+    expect(db.job.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("rejects when updateMany returns count 0 (draft-flip between read and write)", async () => {
+    vi.mocked(db.job.findUnique).mockResolvedValue({
+      id: "job-1",
+      status: "DRAFT",
+      formData: null,
+      photos: [photoMeta("u1")],
+      template: { fields: [] },
+    } as never);
+    vi.mocked(db.job.updateMany).mockResolvedValueOnce({ count: 0 } as never);
+
+    const res = await assignRemarksFieldPhotos("job-1", REMARKS_Q15_PHOTOS, [
+      "u1",
+    ]);
+    expect(res.success).toBe(false);
+    expect(res.error).toMatch(/no longer editable/i);
+    expect(db.job.updateMany).toHaveBeenCalledTimes(1);
+    const arg = vi.mocked(db.job.updateMany).mock.calls[0]![0] as {
+      where: { id: string; status: string };
+    };
+    expect(arg.where).toEqual({ id: "job-1", status: "DRAFT" });
+  });
+
+  it("empty urls deletes the owner entry while preserving sibling owners", async () => {
+    vi.mocked(db.job.findUnique).mockResolvedValue({
+      id: "job-1",
+      status: "DRAFT",
+      formData: {
+        [RESERVED_PHOTO_MAP_KEY]: {
+          [REMARKS_Q15_PHOTOS]: ["u1", "u2"],
+          [REMARKS_Q33_PHOTOS]: ["x1"],
+        },
+      },
+      photos: [photoMeta("u1"), photoMeta("u2"), photoMeta("x1")],
+      template: { fields: [] },
+    } as never);
+
+    const res = await assignRemarksFieldPhotos("job-1", REMARKS_Q15_PHOTOS, []);
+    expect(res).toEqual({ success: true });
+
+    const saved = writtenFormData();
+    const map = saved[RESERVED_PHOTO_MAP_KEY] as Record<string, unknown>;
+    expect(map).not.toHaveProperty(REMARKS_Q15_PHOTOS);
+    // Sibling remarks-photo owner untouched.
+    expect(map[REMARKS_Q33_PHOTOS]).toEqual(["x1"]);
   });
 });

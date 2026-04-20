@@ -10,24 +10,26 @@ import {
   ADDITIONAL_PHOTOS_FIELD_ID,
   ADDITIONAL_PHOTOS_CAP,
   MULTI_PHOTO_FIELD_IDS,
-  REMARKS_FIELD_IDS,
+  REMARKS_PHOTO_FIELD_IDS,
+  REMARKS_PHOTO_CAP,
 } from "@/lib/multi-photo";
 
 const Q108_ID = "108_additional_photos";
 const UNASSIGNED = "UNASSIGNED";
 const REVIEWED_FLAG = "__photoAssignmentsReviewed";
 
-// True for fields that carry a single-URL legacy mirror at formData[fieldId]
-// alongside a map entry in __photoAssignmentsByField. Multi-photo fields and
-// remarks fields both carry a mirror that tracks urls[0]; Q108 does NOT have
-// a mirror (map-only, by design). Used by stealOneOwner to decide whether a
-// losing-side field's mirror needs to be kept consistent.
+// True ONLY for fields that carry a single-URL legacy mirror at
+// formData[fieldId] alongside a map entry in __photoAssignmentsByField.
+// Under the locked 2026-04-20 product model, only multi-photo fields
+// (Q5/Q16/Q25/Q40/Q71) have this shape. Q108 is map-only (no mirror).
+// Remarks-photo owner ids (*_remarks_notes_photos) are map-only too.
+// Remarks textarea ids (*_remarks_notes) hold note text, never photos,
+// and are not photo owners at all.
 //
-// Keeping this predicate as a single surface means the remarks action (next
-// atomic task) inherits correct mirror maintenance without editing stealing
-// logic — just extending the action surface.
+// Used by stealOneOwner to decide whether a losing-side field's mirror
+// needs to be kept consistent when it loses URLs via a steal.
 function hasLegacyPhotoMirror(fieldId: string): boolean {
-  return MULTI_PHOTO_FIELD_IDS.has(fieldId) || REMARKS_FIELD_IDS.has(fieldId);
+  return MULTI_PHOTO_FIELD_IDS.has(fieldId);
 }
 
 // One-photo-one-owner enforcement (locked product rule, 2026-04-20).
@@ -150,6 +152,7 @@ export async function savePhotoAssignments(
   const isMapBacked = (id: string) =>
     hasLegacyPhotoMirror(id) ||
     id === ADDITIONAL_PHOTOS_FIELD_ID ||
+    REMARKS_PHOTO_FIELD_IDS.has(id) ||
     mapEntries[id] !== undefined;
 
   // Source-ownership inventory: every URL currently owned by the reserved
@@ -437,6 +440,117 @@ export async function assignAdditionalPhotos(
   }
 
   next[RESERVED_PHOTO_MAP_KEY] = currentMap;
+  next[REVIEWED_FLAG] = true;
+
+  const updated = await db.job.updateMany({
+    where: { id: jobId, status: "DRAFT" },
+    data: { formData: next as unknown as object },
+  });
+  if (updated.count === 0) {
+    return { success: false, error: "Job is no longer editable" };
+  }
+
+  revalidatePath(`/jobs/${jobId}`);
+  revalidatePath("/admin");
+  return { success: true };
+}
+
+// Remarks-photo owner writer — dedicated server action for the 8 synthetic
+// `*_remarks_notes_photos` owner keys (locked 2026-04-20). Each remarks
+// section has both a textarea value at formData["<n>_remarks_notes"] (note
+// text, owned by RHF autosave) and a separate map-only photo list at
+// __photoAssignmentsByField["<n>_remarks_notes_photos"] (owned by this
+// action). The two never collide because the keys differ.
+//
+// Persisted truth on save:
+//   formData["__photoAssignmentsByField"][fieldId] = urls[]  (map-only)
+//   formData["__photoAssignmentsReviewed"]         = true
+//
+// No legacy mirror. Remarks-photo owners have no UI-reflected single-URL
+// slot; any mirror would be clobbered by autosave and would also risk
+// leaking a photo URL into the textarea note key. The map entry is the
+// single source of truth; readFieldPhotoUrls resolves by owner id.
+//
+// Cap enforcement is hard at REMARKS_PHOTO_CAP (8). Ownership validated
+// against job.photos. Draft-only guard is atomic with the write. One-
+// photo-one-owner enforced via stealOneOwner.
+export async function assignRemarksFieldPhotos(
+  jobId: string,
+  fieldId: string,
+  urls: string[],
+): Promise<{ success: boolean; error?: string }> {
+  if (!REMARKS_PHOTO_FIELD_IDS.has(fieldId)) {
+    return {
+      success: false,
+      error: `Field ${fieldId} is not a remarks-photo owner id`,
+    };
+  }
+
+  // De-duplicate while preserving caller-supplied order.
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const u of urls) {
+    if (typeof u !== "string" || u.length === 0) continue;
+    if (seen.has(u)) continue;
+    seen.add(u);
+    unique.push(u);
+  }
+
+  if (unique.length > REMARKS_PHOTO_CAP) {
+    return {
+      success: false,
+      error: `Too many photos for ${fieldId}: ${unique.length} > cap ${REMARKS_PHOTO_CAP}`,
+    };
+  }
+
+  const job = await db.job.findUnique({
+    where: { id: jobId },
+    include: { template: true },
+  });
+  if (!job) return { success: false, error: "Job not found" };
+  if (job.status !== "DRAFT") {
+    return { success: false, error: "Only draft jobs can assign photos" };
+  }
+
+  // Ownership: every URL must already exist in job.photos.
+  const photos = (job.photos as PhotoMetadata[] | null) ?? [];
+  const photoUrlSet = new Set(photos.map((p) => p.url));
+  for (const u of unique) {
+    if (!photoUrlSet.has(u)) {
+      return { success: false, error: "Unknown photo in payload" };
+    }
+  }
+
+  const templateFields = (job.template?.fields as FormField[] | null) ?? [];
+  const templatePhotoFieldIds = templateFields
+    .filter((f) => f.type === "photo")
+    .map((f) => f.id);
+
+  const existing = (job.formData as FormData | null) ?? {};
+  const rawMap = existing[RESERVED_PHOTO_MAP_KEY];
+  const currentMap: Record<string, unknown> =
+    rawMap && typeof rawMap === "object" && !Array.isArray(rawMap)
+      ? { ...(rawMap as Record<string, unknown>) }
+      : {};
+
+  const next: FormData = { ...existing };
+
+  // One-photo-one-owner: strip incoming URLs from every OTHER map entry
+  // AND from every OTHER template photo field's legacy mirror. Since the
+  // remarks-photo owner id is NOT in the template (synthetic key), Pass 2
+  // of stealOneOwner naturally skips it — no self-mirror write happens.
+  stealOneOwner(currentMap, next, templatePhotoFieldIds, fieldId, unique);
+
+  if (unique.length > 0) {
+    currentMap[fieldId] = unique;
+  } else {
+    delete currentMap[fieldId];
+  }
+
+  next[RESERVED_PHOTO_MAP_KEY] = currentMap;
+  // NO mirror write. Remarks-photo is map-only — writing next[fieldId]
+  // would collide with nothing today but would create a synthetic
+  // non-`__` key that autosave could clobber.
   next[REVIEWED_FLAG] = true;
 
   const updated = await db.job.updateMany({
