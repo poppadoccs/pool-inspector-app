@@ -14,6 +14,7 @@ import { PhotoAssignmentsEditor } from "@/components/photo-assignments";
 import type { PhotoMetadata } from "@/lib/photos";
 import { JobForm } from "@/components/job-form";
 import { SubmitSection } from "@/components/submit-section";
+import { EditableCopyButton } from "@/components/editable-copy-button";
 import {
   DEFAULT_TEMPLATE,
   type FormData,
@@ -140,6 +141,24 @@ export default async function JobDetailPage({ params }: Props) {
           <Card>
             <CardContent className="p-4">
               <SubmitSection jobId={job.id} />
+            </CardContent>
+          </Card>
+        )}
+
+        {job.status === "SUBMITTED" && (
+          <Card>
+            <CardContent className="space-y-3 p-4">
+              <div className="space-y-1">
+                <h2 className="text-lg font-semibold text-zinc-900">
+                  Need to edit?
+                </h2>
+                <p className="text-sm text-zinc-600">
+                  Create a draft copy of this job. The original stays submitted
+                  and unchanged; the copy opens in the normal editable flow with
+                  every photo assignment carried over.
+                </p>
+              </div>
+              <EditableCopyButton jobId={job.id} />
             </CardContent>
           </Card>
         )}
