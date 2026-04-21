@@ -2,61 +2,122 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <title>Luca vs Dad - Soccer!</title>
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    background: #1a1a2e;
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #0f1020;
     color: white;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    min-height: 100vh;
-    padding: 20px;
     user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
+    overscroll-behavior: none;
   }
-  h1 {
-    font-size: 32px;
-    margin-bottom: 12px;
-    text-shadow: 2px 2px 0 #000;
-  }
-  .scoreboard {
-    display: flex;
-    gap: 40px;
-    margin-bottom: 12px;
-    font-size: 28px;
-    font-weight: bold;
-  }
-  .score-luca { color: #ff4444; }
-  .score-dad { color: #4488ff; }
-  canvas {
-    background: #2d8a3e;
-    border: 6px solid #fff;
-    border-radius: 8px;
-    box-shadow: 0 10px 40px rgba(0,0,0,0.5);
-    max-width: 100%;
-    height: auto;
+  #game {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
     touch-action: none;
   }
-  .controls {
-    margin-top: 16px;
+  .hud {
+    position: absolute;
+    top: env(safe-area-inset-top, 8px);
+    left: 0;
+    right: 0;
     display: flex;
-    gap: 30px;
-    font-size: 14px;
-    text-align: center;
+    justify-content: center;
+    gap: 24px;
+    padding: 8px;
+    font-size: 20px;
+    font-weight: bold;
+    text-shadow: 2px 2px 0 #000;
+    pointer-events: none;
+    z-index: 5;
   }
-  .controls div { padding: 8px 14px; background: #0f3460; border-radius: 8px; }
-  .luca-label { border-left: 4px solid #ff4444; }
-  .dad-label { border-left: 4px solid #4488ff; }
+  .score-luca { color: #ff5555; }
+  .score-dad { color: #55aaff; }
+  .score-mid { color: #ffcc33; }
+
+  .reset-btn {
+    position: absolute;
+    top: env(safe-area-inset-top, 8px);
+    right: 10px;
+    padding: 6px 12px;
+    font-size: 12px;
+    background: rgba(233, 69, 96, 0.9);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-weight: bold;
+    z-index: 6;
+  }
+
+  .joystick {
+    position: absolute;
+    bottom: max(env(safe-area-inset-bottom, 12px), 16px);
+    width: 130px;
+    height: 130px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.08);
+    border: 2px solid rgba(255,255,255,0.25);
+    touch-action: none;
+    z-index: 4;
+  }
+  .joystick.luca { left: 16px; border-color: rgba(255, 85, 85, 0.5); }
+  .joystick.dad  { right: 16px; border-color: rgba(85, 170, 255, 0.5); }
+  .stick {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(255,255,255,0.4);
+    pointer-events: none;
+  }
+  .joystick.luca .stick { background: rgba(255, 85, 85, 0.7); }
+  .joystick.dad  .stick { background: rgba(85, 170, 255, 0.7); }
+
+  .action-btn {
+    position: absolute;
+    width: 70px;
+    height: 70px;
+    border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.3);
+    color: white;
+    font-weight: bold;
+    font-size: 12px;
+    text-align: center;
+    line-height: 1;
+    touch-action: none;
+    z-index: 4;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px;
+  }
+  .action-btn:active, .action-btn.active { transform: scale(0.92); filter: brightness(1.3); }
+
+  .luca-kick { bottom: max(env(safe-area-inset-bottom, 12px), 150px); left: 160px; background: rgba(255, 85, 85, 0.7); }
+  .luca-juke { bottom: max(env(safe-area-inset-bottom, 12px), 60px); left: 160px; background: rgba(255, 200, 0, 0.75); }
+  .dad-kick  { bottom: max(env(safe-area-inset-bottom, 12px), 60px); right: 160px; background: rgba(85, 170, 255, 0.75); width: 90px; height: 90px; font-size: 13px; }
+
   .goal-flash {
     position: fixed;
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    font-size: 100px;
+    font-size: 64px;
     font-weight: bold;
     color: gold;
     text-shadow: 4px 4px 0 #000;
@@ -64,63 +125,125 @@
     pointer-events: none;
     transition: opacity 0.3s;
     z-index: 10;
+    white-space: nowrap;
   }
   .goal-flash.show { opacity: 1; animation: bounce 0.8s; }
   @keyframes bounce {
     0%, 100% { transform: translate(-50%, -50%) scale(1); }
-    50% { transform: translate(-50%, -50%) scale(1.3); }
+    50% { transform: translate(-50%, -50%) scale(1.2); }
   }
-  button {
-    margin-top: 14px;
-    padding: 10px 24px;
-    font-size: 16px;
-    background: #e94560;
+
+  .rotate-hint {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: #0f1020;
     color: white;
-    border: none;
-    border-radius: 8px;
-    cursor: pointer;
-    font-weight: bold;
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 20px;
+    font-size: 18px;
+    flex-direction: column;
+    gap: 14px;
   }
-  button:hover { background: #ff5577; }
+  .rotate-hint .emoji { font-size: 60px; }
+
+  @media (orientation: portrait) and (max-width: 900px) {
+    .rotate-hint { display: flex; }
+  }
+
+  /* Hide touch controls on desktop (no touch) */
+  @media (hover: hover) and (pointer: fine) {
+    .joystick, .action-btn { display: none; }
+  }
+  .desktop-help {
+    display: none;
+    position: absolute;
+    bottom: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 13px;
+    background: rgba(0,0,0,0.5);
+    padding: 8px 14px;
+    border-radius: 8px;
+    pointer-events: none;
+    z-index: 4;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .desktop-help { display: block; }
+  }
 </style>
 </head>
 <body>
-  <h1>⚽ Luca vs Dad ⚽</h1>
-  <div class="scoreboard">
-    <div class="score-luca">Luca: <span id="scoreLuca">0</span></div>
-    <div class="score-dad">Dad: <span id="scoreDad">0</span></div>
+  <canvas id="game"></canvas>
+
+  <div class="hud">
+    <span class="score-luca">Luca <span id="scoreLuca">0</span></span>
+    <span class="score-mid">⚽</span>
+    <span class="score-dad"><span id="scoreDad">0</span> Dad</span>
   </div>
-  <canvas id="game" width="900" height="500"></canvas>
-  <div class="controls">
-    <div class="luca-label">
-      <b>Luca (Ronaldo #7)</b><br>
-      Arrow Keys to move<br>
-      SPACE to kick · SHIFT to JUKE 💨
-    </div>
-    <div class="dad-label">
-      <b>Dad (slow 🐢 but POWERFUL 💪)</b><br>
-      W A S D to move<br>
-      F to kick · Hold F for MEGA KICK 🚀
-    </div>
+
+  <button class="reset-btn" onclick="resetGame()">Reset</button>
+
+  <div class="joystick luca" id="joyLuca"><div class="stick" id="stickLuca"></div></div>
+  <div class="joystick dad"  id="joyDad"><div class="stick"  id="stickDad"></div></div>
+
+  <div class="action-btn luca-kick" id="btnLucaKick">KICK</div>
+  <div class="action-btn luca-juke" id="btnLucaJuke">JUKE💨</div>
+  <div class="action-btn dad-kick"  id="btnDadKick">HOLD<br>MEGA🚀</div>
+
+  <div class="desktop-help">
+    Luca: Arrows + SPACE + SHIFT · Dad: WASD + F (hold for MEGA)
   </div>
-  <button onclick="resetGame()">Reset Game</button>
+
   <div class="goal-flash" id="goalFlash">GOAL!</div>
+
+  <div class="rotate-hint">
+    <div class="emoji">📱↻</div>
+    <div><b>Rotate your phone sideways</b><br>(landscape) to play!</div>
+  </div>
 
 <script>
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
-const W = canvas.width;
-const H = canvas.height;
+
+// Virtual field dimensions — rescaled to actual canvas pixel size each frame
+let W = 900;
+let H = 500;
+let scale = 1;
+let offsetX = 0, offsetY = 0;
+
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = window.innerWidth * dpr;
+  canvas.height = window.innerHeight * dpr;
+  canvas.style.width = window.innerWidth + 'px';
+  canvas.style.height = window.innerHeight + 'px';
+
+  // Fit 900x500 field into the screen with some margin for controls
+  const pad = 8;
+  const availW = window.innerWidth - pad * 2;
+  const availH = window.innerHeight - 60; // room for HUD
+  scale = Math.min(availW / 900, availH / 500) * dpr;
+  const fw = 900 * scale;
+  const fh = 500 * scale;
+  offsetX = (canvas.width - fw) / 2;
+  offsetY = (canvas.height - fh) / 2;
+}
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', () => setTimeout(resize, 200));
+resize();
 
 const GOAL_H = 160;
 const GOAL_Y = (H - GOAL_H) / 2;
 
-// Players
 const luca = {
   x: 200, y: H/2,
   r: 22,
-  speed: 5.5,        // FAST
-  color: '#cc0000',  // Portugal red
+  speed: 5.5,
+  color: '#cc0000',
   shirt: '7',
   name: 'Luca',
   vx: 0, vy: 0,
@@ -133,7 +256,7 @@ const luca = {
 const dad = {
   x: W - 200, y: H/2,
   r: 24,
-  speed: 2.2,        // SLOW 🐢
+  speed: 2.2,
   color: '#3366cc',
   shirt: 'DAD',
   name: 'Dad',
@@ -153,37 +276,145 @@ const ball = {
 let scoreLuca = 0;
 let scoreDad = 0;
 
+// ---------- INPUT (keyboard + touch) ----------
+const input = {
+  luca: { dx: 0, dy: 0, kick: false, juke: false },
+  dad:  { dx: 0, dy: 0, kick: false },
+};
+
+// Keyboard
 const keys = {};
 window.addEventListener('keydown', e => {
   keys[e.key.toLowerCase()] = true;
-  if ([' ','arrowup','arrowdown','arrowleft','arrowright'].includes(e.key.toLowerCase())) {
-    e.preventDefault();
-  }
+  if ([' ','arrowup','arrowdown','arrowleft','arrowright'].includes(e.key.toLowerCase())) e.preventDefault();
 });
 window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
 
-function updatePlayer(p, up, down, left, right, kick) {
-  let dx = 0, dy = 0;
-  if (keys[up]) dy -= 1;
-  if (keys[down]) dy += 1;
-  if (keys[left]) dx -= 1;
-  if (keys[right]) dx += 1;
-  if (dx !== 0 && dy !== 0) { dx *= 0.707; dy *= 0.707; }
+function readKeyboard() {
+  // Luca: arrow keys + SPACE + SHIFT
+  let ldx = 0, ldy = 0;
+  if (keys['arrowup']) ldy -= 1;
+  if (keys['arrowdown']) ldy += 1;
+  if (keys['arrowleft']) ldx -= 1;
+  if (keys['arrowright']) ldx += 1;
+  if (ldx || ldy) {
+    input.luca.dx = ldx;
+    input.luca.dy = ldy;
+  }
+  if (keys[' ']) input.luca.kick = true;
+  if (keys['shift']) input.luca.juke = true;
 
-  // Luca's JUKE (SHIFT) — quick dash in current direction
+  // Dad: WASD + F
+  let ddx = 0, ddy = 0;
+  if (keys['w']) ddy -= 1;
+  if (keys['s']) ddy += 1;
+  if (keys['a']) ddx -= 1;
+  if (keys['d']) ddx += 1;
+  if (ddx || ddy) {
+    input.dad.dx = ddx;
+    input.dad.dy = ddy;
+  }
+  input.dad.kick = !!keys['f'];
+}
+
+// Touch joysticks
+function setupJoystick(el, stick, side) {
+  const MAX = 45;
+  let touchId = null;
+  let originX = 0, originY = 0;
+
+  function start(e) {
+    const t = e.changedTouches ? e.changedTouches[0] : e;
+    touchId = e.changedTouches ? t.identifier : 'mouse';
+    const rect = el.getBoundingClientRect();
+    originX = rect.left + rect.width / 2;
+    originY = rect.top + rect.height / 2;
+    move(e);
+  }
+  function move(e) {
+    let t;
+    if (e.changedTouches) {
+      for (const ct of e.changedTouches) if (ct.identifier === touchId) { t = ct; break; }
+      if (!t) return;
+    } else t = e;
+    const dx = t.clientX - originX;
+    const dy = t.clientY - originY;
+    const dist = Math.hypot(dx, dy);
+    const clamped = Math.min(dist, MAX);
+    const nx = dist ? dx / dist : 0;
+    const ny = dist ? dy / dist : 0;
+    stick.style.transform = `translate(calc(-50% + ${nx * clamped}px), calc(-50% + ${ny * clamped}px))`;
+    const dead = 0.15;
+    const mag = clamped / MAX;
+    if (mag < dead) {
+      input[side].dx = 0;
+      input[side].dy = 0;
+    } else {
+      input[side].dx = nx * mag;
+      input[side].dy = ny * mag;
+    }
+  }
+  function end(e) {
+    if (e.changedTouches) {
+      let found = false;
+      for (const ct of e.changedTouches) if (ct.identifier === touchId) { found = true; break; }
+      if (!found) return;
+    }
+    touchId = null;
+    stick.style.transform = 'translate(-50%, -50%)';
+    input[side].dx = 0;
+    input[side].dy = 0;
+  }
+  el.addEventListener('touchstart', e => { e.preventDefault(); start(e); }, { passive: false });
+  el.addEventListener('touchmove',  e => { e.preventDefault(); move(e); },  { passive: false });
+  el.addEventListener('touchend',   e => { e.preventDefault(); end(e); },   { passive: false });
+  el.addEventListener('touchcancel',e => { e.preventDefault(); end(e); },   { passive: false });
+}
+
+setupJoystick(document.getElementById('joyLuca'), document.getElementById('stickLuca'), 'luca');
+setupJoystick(document.getElementById('joyDad'),  document.getElementById('stickDad'),  'dad');
+
+// Action buttons
+function setupHoldBtn(el, onDown, onUp) {
+  let active = false;
+  const down = e => { e.preventDefault(); if (!active) { active = true; el.classList.add('active'); onDown && onDown(); } };
+  const up   = e => { e.preventDefault(); if (active) { active = false; el.classList.remove('active'); onUp && onUp(); } };
+  el.addEventListener('touchstart', down, { passive: false });
+  el.addEventListener('touchend',   up,   { passive: false });
+  el.addEventListener('touchcancel',up,   { passive: false });
+}
+setupHoldBtn(document.getElementById('btnLucaKick'),
+  () => { input.luca.kick = true; },
+  () => { input.luca.kick = false; }
+);
+setupHoldBtn(document.getElementById('btnLucaJuke'),
+  () => { input.luca.juke = true; setTimeout(() => input.luca.juke = false, 60); },
+  () => {}
+);
+setupHoldBtn(document.getElementById('btnDadKick'),
+  () => { input.dad.kick = true; },
+  () => { input.dad.kick = false; }
+);
+
+// ---------- GAME LOGIC ----------
+function updatePlayer(p, inp) {
+  let dx = inp.dx || 0, dy = inp.dy || 0;
+  const mag = Math.hypot(dx, dy);
+  if (mag > 1) { dx /= mag; dy /= mag; }
+
   if (p === luca) {
     if (p.jukeCooldown > 0) p.jukeCooldown--;
     if (p.jukeTimer > 0) p.jukeTimer--;
-    if (dx !== 0 || dy !== 0) { p.lastDx = dx; p.lastDy = dy; }
-    if (keys['shift'] && p.jukeCooldown === 0) {
-      p.jukeTimer = 10;         // ~10 frames of dash
-      p.jukeCooldown = 55;      // cooldown before next juke
+    if (dx !== 0 || dy !== 0) { p.lastDx = dx / (Math.hypot(dx,dy) || 1); p.lastDy = dy / (Math.hypot(dx,dy) || 1); }
+    if (inp.juke && p.jukeCooldown === 0) {
+      p.jukeTimer = 10;
+      p.jukeCooldown = 55;
     }
   }
 
   let speed = p.speed;
   if (p === luca && p.jukeTimer > 0) {
-    speed = p.speed * 2.4;      // 💨 juke burst
+    speed = p.speed * 2.4;
     dx = p.lastDx;
     dy = p.lastDy;
   }
@@ -214,34 +445,29 @@ function updatePlayer(p, up, down, left, right, kick) {
     ball.vy = ny * push + p.vy * 0.8;
   }
 
-  // Dad's MEGA KICK — hold F to charge, release for rocket
   if (p === dad) {
-    if (keys[kick]) {
+    if (inp.kick) {
       p.charging = true;
       p.charge = Math.min(p.charge + 1, 60);
     } else if (p.charging && p.kickCooldown === 0) {
-      // Released! Fire if near ball
-      if (dist < p.r + ball.r + 22) {
+      if (dist < p.r + ball.r + 26) {
         const nx = ddx / (dist || 1);
         const ny = ddy / (dist || 1);
-        const power = 10 + (p.charge / 60) * 18;  // 10 → 28
+        const power = 10 + (p.charge / 60) * 18;
         ball.vx = nx * power;
         ball.vy = ny * power;
         p.kickCooldown = 20;
       }
       p.charging = false;
       p.charge = 0;
-    } else if (!keys[kick]) {
-      p.charge = 0;
-      p.charging = false;
     }
   } else {
-    if (keys[kick] && p.kickCooldown === 0 && dist < p.r + ball.r + 18) {
+    if (inp.kick && p.kickCooldown === 0 && dist < p.r + ball.r + 20) {
       const nx = ddx / (dist || 1);
       const ny = ddy / (dist || 1);
       ball.vx = nx * 14;
       ball.vy = ny * 14;
-      p.kickCooldown = 20;
+      p.kickCooldown = 15;
     }
   }
 }
@@ -252,30 +478,18 @@ function updateBall() {
   ball.vx *= ball.friction;
   ball.vy *= ball.friction;
 
-  // Top/bottom walls
   if (ball.y - ball.r < 0) { ball.y = ball.r; ball.vy *= -0.7; }
   if (ball.y + ball.r > H) { ball.y = H - ball.r; ball.vy *= -0.7; }
 
-  // Goals (left = Dad's goal; right = Luca's goal)
   const inGoalY = ball.y > GOAL_Y && ball.y < GOAL_Y + GOAL_H;
 
   if (ball.x - ball.r < 0) {
-    if (inGoalY) {
-      scoreLuca++;
-      goalFlash('LUCA SCORES! ⚽');
-      resetPositions();
-    } else {
-      ball.x = ball.r; ball.vx *= -0.7;
-    }
+    if (inGoalY) { scoreLuca++; goalFlash('LUCA! ⚽'); resetPositions(); }
+    else { ball.x = ball.r; ball.vx *= -0.7; }
   }
   if (ball.x + ball.r > W) {
-    if (inGoalY) {
-      scoreDad++;
-      goalFlash('DAD SCORES! ⚽');
-      resetPositions();
-    } else {
-      ball.x = W - ball.r; ball.vx *= -0.7;
-    }
+    if (inGoalY) { scoreDad++; goalFlash('DAD! ⚽'); resetPositions(); }
+    else { ball.x = W - ball.r; ball.vx *= -0.7; }
   }
 
   document.getElementById('scoreLuca').textContent = scoreLuca;
@@ -292,7 +506,7 @@ function goalFlash(text) {
   const el = document.getElementById('goalFlash');
   el.textContent = text;
   el.classList.add('show');
-  setTimeout(() => el.classList.remove('show'), 1200);
+  setTimeout(() => el.classList.remove('show'), 1100);
 }
 
 function resetGame() {
@@ -301,36 +515,33 @@ function resetGame() {
   resetPositions();
 }
 
-function drawField() {
-  // Stripes
+// ---------- RENDER ----------
+function field() {
+  ctx.save();
+  ctx.translate(offsetX, offsetY);
+  ctx.scale(scale, scale);
+
   ctx.fillStyle = '#2d8a3e';
   ctx.fillRect(0, 0, W, H);
   ctx.fillStyle = '#277a37';
   const stripe = 60;
-  for (let i = 0; i < W; i += stripe * 2) {
-    ctx.fillRect(i, 0, stripe, H);
-  }
+  for (let i = 0; i < W; i += stripe * 2) ctx.fillRect(i, 0, stripe, H);
 
   ctx.strokeStyle = 'rgba(255,255,255,0.9)';
   ctx.lineWidth = 3;
-  // Outline
   ctx.strokeRect(4, 4, W - 8, H - 8);
-  // Center line
   ctx.beginPath();
   ctx.moveTo(W/2, 4);
   ctx.lineTo(W/2, H - 4);
   ctx.stroke();
-  // Center circle
   ctx.beginPath();
   ctx.arc(W/2, H/2, 70, 0, Math.PI * 2);
   ctx.stroke();
-  // Center dot
   ctx.fillStyle = 'white';
   ctx.beginPath();
   ctx.arc(W/2, H/2, 4, 0, Math.PI * 2);
   ctx.fill();
 
-  // Goals
   ctx.fillStyle = 'rgba(255,255,255,0.25)';
   ctx.fillRect(0, GOAL_Y, 10, GOAL_H);
   ctx.fillRect(W - 10, GOAL_Y, 10, GOAL_H);
@@ -339,7 +550,6 @@ function drawField() {
   ctx.strokeRect(0, GOAL_Y, 10, GOAL_H);
   ctx.strokeRect(W - 10, GOAL_Y, 10, GOAL_H);
 
-  // Penalty boxes
   ctx.lineWidth = 3;
   ctx.strokeStyle = 'rgba(255,255,255,0.9)';
   ctx.strokeRect(4, H/2 - 110, 90, 220);
@@ -347,7 +557,6 @@ function drawField() {
 }
 
 function drawPlayer(p) {
-  // Juke trail for Luca
   if (p === luca && p.jukeTimer > 0) {
     ctx.fillStyle = 'rgba(255,215,0,0.35)';
     for (let i = 1; i <= 3; i++) {
@@ -356,8 +565,6 @@ function drawPlayer(p) {
       ctx.fill();
     }
   }
-
-  // Mega kick charge ring for Dad
   if (p === dad && p.charging && p.charge > 5) {
     const pct = p.charge / 60;
     ctx.strokeStyle = `rgba(255, ${220 - pct * 200}, 0, 0.9)`;
@@ -367,36 +574,26 @@ function drawPlayer(p) {
     ctx.stroke();
   }
 
-  // Shadow
   ctx.fillStyle = 'rgba(0,0,0,0.3)';
   ctx.beginPath();
   ctx.ellipse(p.x, p.y + p.r - 2, p.r * 0.9, p.r * 0.35, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // Body (jersey)
   ctx.fillStyle = p.color;
   ctx.beginPath();
   ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
   ctx.fill();
 
-  // Trim (Portugal green accent for Luca, white for dad)
-  if (p === luca) {
-    ctx.strokeStyle = '#006633';
-    ctx.lineWidth = 4;
-  } else {
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 3;
-  }
+  if (p === luca) { ctx.strokeStyle = '#006633'; ctx.lineWidth = 4; }
+  else { ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3; }
   ctx.stroke();
 
-  // Shirt number / name
   ctx.fillStyle = 'white';
   ctx.font = 'bold 16px -apple-system, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(p.shirt, p.x, p.y);
 
-  // Tiny name tag
   ctx.fillStyle = 'rgba(0,0,0,0.6)';
   ctx.fillRect(p.x - 24, p.y - p.r - 18, 48, 14);
   ctx.fillStyle = 'white';
@@ -412,31 +609,30 @@ function drawBall() {
   ctx.strokeStyle = 'black';
   ctx.lineWidth = 2;
   ctx.stroke();
-  // Pentagon dots for soccer-ball feel
   ctx.fillStyle = 'black';
-  ctx.beginPath();
-  ctx.arc(ball.x, ball.y, 3, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.arc(ball.x - 5, ball.y - 4, 2, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.arc(ball.x + 5, ball.y - 4, 2, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.arc(ball.x, ball.y + 5, 2, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.beginPath(); ctx.arc(ball.x, ball.y, 3, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(ball.x - 5, ball.y - 4, 2, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(ball.x + 5, ball.y - 4, 2, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(ball.x, ball.y + 5, 2, 0, Math.PI * 2); ctx.fill();
 }
 
 function loop() {
-  updatePlayer(luca, 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ');
-  updatePlayer(dad,  'w',       's',         'a',          'd',           'f');
+  readKeyboard();
+
+  updatePlayer(luca, input.luca);
+  updatePlayer(dad,  input.dad);
   updateBall();
 
-  drawField();
+  // one-shot juke flag consumed
+  input.luca.juke = false;
+
+  ctx.fillStyle = '#0f1020';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  field();
   drawBall();
   drawPlayer(luca);
   drawPlayer(dad);
+  ctx.restore();
 
   requestAnimationFrame(loop);
 }
