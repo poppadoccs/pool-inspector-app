@@ -118,7 +118,7 @@ describe("createEditableCopy", () => {
     };
   }
 
-  it("creates a DRAFT copy with photos + formData carried over including the map", async () => {
+  it("creates a DRAFT copy with photos + formData carried over including the map, plus the __sourceJobId marker", async () => {
     vi.mocked(db.job.findUnique).mockResolvedValue(submittedSource() as never);
     vi.mocked(db.job.create).mockResolvedValue({
       id: "copy-1",
@@ -138,8 +138,11 @@ describe("createEditableCopy", () => {
     // Photos preserved 1:1.
     expect(createArgs.data.photos).toEqual(submittedSource().photos);
     // formData preserved — map + mirror + remarks owner + Q108 map entry +
-    // reviewed flag all carry over.
-    expect(createArgs.data.formData).toEqual(submittedSource().formData);
+    // reviewed flag all carry over, with __sourceJobId added on top.
+    expect(createArgs.data.formData).toEqual({
+      ...submittedSource().formData,
+      __sourceJobId: "src-1",
+    });
     // Submitted-only fields are NOT set on the new draft.
     expect(createArgs.data).not.toHaveProperty("submittedBy");
     expect(createArgs.data).not.toHaveProperty("submittedAt");
@@ -222,7 +225,7 @@ describe("createEditableCopy", () => {
     expect(revalidatePath).toHaveBeenCalledWith("/jobs/copy-1");
   });
 
-  it("handles a source job with null formData (no map, no legacy mirrors)", async () => {
+  it("handles a source job with null formData — copy still gets the __sourceJobId marker on an otherwise empty formData", async () => {
     const src = {
       ...submittedSource(),
       formData: null as unknown as Record<string, unknown>,
@@ -239,9 +242,44 @@ describe("createEditableCopy", () => {
     const createArgs = vi.mocked(db.job.create).mock.calls[0][0] as {
       data: Record<string, unknown>;
     };
-    // Null formData is not written into data — Prisma handles the default.
-    expect(createArgs.data).not.toHaveProperty("formData");
+    // Null source formData still produces a non-null formData on the copy
+    // so the marker can ride in it — the copy must carry the guard even
+    // for jobs created before formData was populated.
+    expect(createArgs.data.formData).toEqual({ __sourceJobId: "src-1" });
     // Photos still carried over.
     expect(createArgs.data.photos).toEqual(src.photos);
+  });
+
+  it("writes the __sourceJobId marker pointing at the source id so the UI can detect copy-ness", async () => {
+    vi.mocked(db.job.findUnique).mockResolvedValue(submittedSource() as never);
+    vi.mocked(db.job.create).mockResolvedValue({
+      id: "copy-1",
+      status: "DRAFT",
+    } as never);
+
+    await createEditableCopy("src-1");
+    const createArgs = vi.mocked(db.job.create).mock.calls[0][0] as {
+      data: { formData: Record<string, unknown> };
+    };
+    // Exactly the source's id, under the reserved `__`-prefixed key.
+    expect(createArgs.data.formData.__sourceJobId).toBe("src-1");
+  });
+});
+
+describe("isEditableCopy helper", () => {
+  it("returns true when formData carries a non-empty __sourceJobId string", async () => {
+    const { isEditableCopy } = await import("@/lib/multi-photo");
+    expect(isEditableCopy({ __sourceJobId: "src-42" })).toBe(true);
+  });
+
+  it("returns false when the marker is missing, empty, or non-string", async () => {
+    const { isEditableCopy } = await import("@/lib/multi-photo");
+    expect(isEditableCopy(null)).toBe(false);
+    expect(isEditableCopy(undefined)).toBe(false);
+    expect(isEditableCopy({})).toBe(false);
+    expect(isEditableCopy({ __sourceJobId: "" })).toBe(false);
+    expect(isEditableCopy({ __sourceJobId: 42 as unknown as string })).toBe(
+      false,
+    );
   });
 });

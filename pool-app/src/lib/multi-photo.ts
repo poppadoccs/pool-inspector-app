@@ -88,6 +88,24 @@ export function remarksPhotoOwnerIdFor(fieldId: string): string | null {
 export const RESERVED_PHOTO_MAP_KEY = "__photoAssignmentsByField";
 export const REVIEWED_FLAG = "__photoAssignmentsReviewed";
 
+// Reserved marker written by createEditableCopy into the copy's formData.
+// Holds the source job id so the copy's editable UI can detect that its
+// photo blobs are SHARED with a SUBMITTED source and must not be deleted
+// destructively. The guard is UI-level only for this slice — the photos
+// action surface is unchanged; a future resend/blob-ownership slice will
+// replace this with true per-job blob ownership (copy-on-write or
+// reference counting).
+export const SOURCE_JOB_ID_KEY = "__sourceJobId";
+
+// True when the given formData carries the editable-copy marker.
+export function isEditableCopy(
+  formData: Record<string, unknown> | null | undefined,
+): boolean {
+  if (!formData) return false;
+  const v = formData[SOURCE_JOB_ID_KEY];
+  return typeof v === "string" && v.length > 0;
+}
+
 // Resolves a field's photo URLs across the new map shape and the legacy
 // single-string mirror. Priority:
 //   1. formData["__photoAssignmentsByField"][fieldId] (new shape)
