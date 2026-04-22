@@ -169,12 +169,13 @@ export default async function JobDetailPage({ params }: Props) {
             <CardContent className="space-y-3 p-4">
               <div className="space-y-1">
                 <h2 className="text-lg font-semibold text-zinc-900">
-                  Need to edit?
+                  Resend or edit
                 </h2>
                 <p className="text-sm text-zinc-600">
-                  Create a draft copy of this job. The original stays submitted
-                  and unchanged; the copy opens in the normal editable flow with
-                  every photo assignment carried over.
+                  Need to resend this submission or fix something? Create a
+                  draft copy — the original stays submitted and unchanged.
+                  Submitting the copy re-sends the email with an updated PDF and
+                  editable link.
                 </p>
               </div>
               <EditableCopyButton jobId={job.id} />

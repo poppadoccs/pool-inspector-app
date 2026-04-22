@@ -36,7 +36,7 @@ export function EditableCopyButton({ jobId }: { jobId: string }) {
       ) : (
         <Copy className="size-5" />
       )}
-      Create editable copy
+      Resend or edit (create copy)
     </Button>
   );
 }
