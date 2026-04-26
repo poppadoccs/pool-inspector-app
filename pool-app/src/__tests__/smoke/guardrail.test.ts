@@ -251,6 +251,7 @@ describe("smoke: resend flow (mocked)", () => {
 
     const res = await submitJob(COPY_ID, "tester");
     expect(res.success).toBe(true);
+    expect(res.emailSent).toBe(true);
     expect(db.job.updateMany).toHaveBeenCalledWith({
       where: { id: COPY_ID, status: { not: "SUBMITTED" } },
       data: expect.objectContaining({
@@ -292,5 +293,30 @@ describe("smoke: resend flow (mocked)", () => {
       const where = (call[0] as { where: { id: string } }).where;
       expect(where.id).not.toBe(SOURCE_ID);
     }
+  });
+
+  it("submitJob on email-failure: still flips status to SUBMITTED but returns emailSent: false", async () => {
+    vi.mocked(db.job.findUnique).mockResolvedValue(draftCopyFixture() as never);
+    // One-shot override: Resend returns a relay-style error for this single
+    // send. mockResolvedValueOnce reverts to the default happy-path mock
+    // afterward so no other test inherits the broken state.
+    mockSend.mockResolvedValueOnce({
+      data: null,
+      error: { name: "relay_error", message: "SMTP unavailable" },
+    } as never);
+
+    const res = await submitJob(COPY_ID, "tester");
+
+    expect(res.success).toBe(true);
+    expect(res.emailSent).toBe(false);
+    // DB flip must still land — the job must persist as SUBMITTED even when
+    // the subsequent email send fails. This is the core SUBM-07 invariant.
+    expect(db.job.updateMany).toHaveBeenCalledWith({
+      where: { id: COPY_ID, status: { not: "SUBMITTED" } },
+      data: expect.objectContaining({
+        status: "SUBMITTED",
+        submittedBy: "tester",
+      }),
+    });
   });
 });

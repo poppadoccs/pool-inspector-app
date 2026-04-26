@@ -36,7 +36,14 @@ export async function submitJob(
   jobId: string,
   submittedBy: string,
   workerSignature?: string,
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{
+  success: boolean;
+  error?: string;
+  // Present only on the success return so the UI can distinguish a clean
+  // happy-path submission from a "job saved but office email didn't send"
+  // state. Error returns do not set this field.
+  emailSent?: boolean;
+}> {
   // 0. Validate signature format + size
   if (workerSignature) {
     const sigError = validateSignature(workerSignature);
@@ -209,5 +216,5 @@ export async function submitJob(
   revalidatePath(`/jobs/${jobId}`);
   revalidatePath("/");
 
-  return { success: true };
+  return { success: true, emailSent: !emailError };
 }
