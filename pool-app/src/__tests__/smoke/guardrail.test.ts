@@ -319,4 +319,24 @@ describe("smoke: resend flow (mocked)", () => {
       }),
     });
   });
+
+  it("submitJob on email-throw: still flips status to SUBMITTED but returns emailSent: false", async () => {
+    // Second SUBM-07 invariant: when the Resend SDK throws/rejects (network
+    // down, malformed payload, etc.) AFTER the DB flip, the worker must see
+    // the same emailSent: false outcome — not a generic server-action error.
+    vi.mocked(db.job.findUnique).mockResolvedValue(draftCopyFixture() as never);
+    mockSend.mockRejectedValueOnce(new Error("network down"));
+
+    const res = await submitJob(COPY_ID, "tester");
+
+    expect(res.success).toBe(true);
+    expect(res.emailSent).toBe(false);
+    expect(db.job.updateMany).toHaveBeenCalledWith({
+      where: { id: COPY_ID, status: { not: "SUBMITTED" } },
+      data: expect.objectContaining({
+        status: "SUBMITTED",
+        submittedBy: "tester",
+      }),
+    });
+  });
 });

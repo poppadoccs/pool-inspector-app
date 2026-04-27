@@ -197,24 +197,36 @@ export async function submitJob(
     editUrl,
   });
 
-  const { error: emailError } = await getResend().emails.send({
-    from: "Pool Field Forms <forms@mail.lucacllc.com>",
-    to: [submissionEmail],
-    subject: `Job Submission: ${jobTitle}`,
-    html,
-    ...(pdfAttachment ? { attachments: [pdfAttachment] } : {}),
-  });
-
-  if (emailError) {
-    // Job is already saved — don't block the worker. Email failure is an ops issue.
+  // Two failure modes the worker must see as "saved-but-unsent":
+  //  1) Resend returns { error } — relay/SMTP issue surfaced via the SDK
+  //  2) Resend throws / rejects — network or SDK-internal failure
+  // Both resolve to emailSent: false. Raw error details stay in stderr only.
+  let emailSent = true;
+  try {
+    const { error: emailError } = await getResend().emails.send({
+      from: "Pool Field Forms <forms@mail.lucacllc.com>",
+      to: [submissionEmail],
+      subject: `Job Submission: ${jobTitle}`,
+      html,
+      ...(pdfAttachment ? { attachments: [pdfAttachment] } : {}),
+    });
+    if (emailError) {
+      console.error(
+        `[submit] Email failed after job ${jobId} committed:`,
+        emailError.message,
+      );
+      emailSent = false;
+    }
+  } catch (err) {
     console.error(
-      `[submit] Email failed after job ${jobId} committed:`,
-      emailError.message,
+      `[submit] Email send threw after job ${jobId} committed:`,
+      err,
     );
+    emailSent = false;
   }
 
   revalidatePath(`/jobs/${jobId}`);
   revalidatePath("/");
 
-  return { success: true, emailSent: !emailError };
+  return { success: true, emailSent };
 }
