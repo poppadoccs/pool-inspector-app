@@ -170,6 +170,20 @@ export async function generateJobPdf(
   const consumedPhotoIdxs = new Set<number>();
   const fieldResolvedUrls = new Map<string, string[]>();
 
+  // PhotoMetadata.includedInPdf contract (added by CC-B2):
+  //   undefined → include (legacy default)
+  //   true      → include
+  //   false     → exclude from EVERY PDF render touchpoint
+  // The exclusion is render-only; ownership/storage are unchanged. The
+  // gate lives here (not at field-assignment time) because admins can
+  // toggle includedInPdf on an already-assigned photo and the PDF must
+  // honor the latest flag without re-saving assignments.
+  const isExcludedFromPdf = (p: PhotoMetadata): boolean =>
+    p.includedInPdf === false;
+  const excludedUrlSet = new Set(
+    allJobPhotosArr.filter(isExcludedFromPdf).map((p) => p.url),
+  );
+
   // Pass 1 — explicit binding via the authoritative map-first read path.
   for (const field of template.fields) {
     if (field.type !== "photo") continue;
@@ -184,13 +198,23 @@ export async function generateJobPdf(
         (p, i) => !consumedPhotoIdxs.has(i) && matchesRaw(p),
       );
       if (idx >= 0) {
+        // Always mark consumed so the photo cannot drain elsewhere
+        // (Q108, safety drain, recovery) — the exclusion is a *render*
+        // gate, not a re-routing. Push to the resolved list ONLY when
+        // not excluded so the field's owned slot stays empty (or shows
+        // "—" if it is the field's only owned photo).
         consumedPhotoIdxs.add(idx);
-        resolved.push(allJobPhotosArr[idx].url);
+        if (!isExcludedFromPdf(allJobPhotosArr[idx])) {
+          resolved.push(allJobPhotosArr[idx].url);
+        }
       } else if (
         raw.startsWith("http") &&
         !allJobPhotosArr.some((p) => p.url === raw)
       ) {
         // External URL never in the pool — still render it verbatim.
+        // Excluded-from-PDF only applies to URLs in job.photos because
+        // the includedInPdf flag lives on PhotoMetadata; an external
+        // URL has no PhotoMetadata entry and therefore no flag.
         resolved.push(raw);
       }
       // Orphan filename / duplicate already consumed → leave unresolved
@@ -228,8 +252,13 @@ export async function generateJobPdf(
       if (field.type !== "photo") continue;
       if (field.id === ADDITIONAL_PHOTOS_FIELD_ID) continue;
       if (fieldResolvedUrls.has(field.id)) continue;
+      // Skip excluded photos when picking the next sequential candidate.
+      // An excluded photo must never be silently assigned to a field by
+      // legacy fallback; if it were, it would render. Leaving it
+      // unconsumed here is safe because Pass 3 also filters excluded out
+      // of the drain queue.
       const idx = allJobPhotosArr.findIndex(
-        (_, i) => !consumedPhotoIdxs.has(i),
+        (p, i) => !consumedPhotoIdxs.has(i) && !isExcludedFromPdf(p),
       );
       if (idx < 0) continue; // out of photos — leave unresolved → "—"
       consumedPhotoIdxs.add(idx);
@@ -257,8 +286,13 @@ export async function generateJobPdf(
 
   // Pass 3 queue — every photo not claimed by a non-Q108 field drains
   // under Q108 "Additional Photos" (or the safety drain if Q108 is absent).
+  // Excluded photos are filtered out so they never reach Q108 or the
+  // safety drain. Pass 1 has already marked excluded URLs consumed when
+  // they were owned by a template field; this filter additionally drops
+  // any excluded URL that was not claimed by Pass 1 (e.g. orphan/UNASSIGNED
+  // excluded photos) so it cannot appear under Q108.
   const photosQueue: string[] = allJobPhotosArr
-    .filter((_, i) => !consumedPhotoIdxs.has(i))
+    .filter((p, i) => !consumedPhotoIdxs.has(i) && !isExcludedFromPdf(p))
     .map((p) => p.url);
 
   for (const field of template.fields) {
@@ -478,7 +512,7 @@ export async function generateJobPdf(
       const remarksPhotoUrls = readFieldPhotoUrls(
         formData,
         remarksPhotoOwnerId,
-      );
+      ).filter((u) => !excludedUrlSet.has(u));
       for (const url of remarksPhotoUrls) {
         try {
           const res = await fetch(url);
@@ -521,7 +555,12 @@ export async function generateJobPdf(
     if (templateFieldIdSet.has(remarksFieldId)) continue;
     const ownerId = remarksPhotoOwnerIdFor(remarksFieldId);
     if (!ownerId) continue;
-    const urls = readFieldPhotoUrls(formData, ownerId);
+    // Filter excluded URLs out of the recovery payload so admins who
+    // exclude a remarks photo on a missing-template job still get the
+    // exclusion honored. Empty post-filter buckets skip the heading.
+    const urls = readFieldPhotoUrls(formData, ownerId).filter(
+      (u) => !excludedUrlSet.has(u),
+    );
     if (urls.length === 0) continue;
 
     // Synthesized heading derived from the textarea id's leading number.

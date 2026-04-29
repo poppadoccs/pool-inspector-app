@@ -56,16 +56,16 @@ export function buildSubmissionEmail({
     })
     .join("");
 
-  const photoSection =
-    photos.length > 0
-      ? `
-        <h2 style="font-size: 18px; margin: 24px 0 12px 0; color: #333;">
-          Photos (${photos.length})
-        </h2>
-        <div style="width: 100%; max-width: 100%;">
-          ${photos
-            .map(
-              (photo, i) => `
+  // Split photos by PDF inclusion. Treat undefined and true identically as
+  // "included" — preserves pre-feature behavior for legacy photos. Excluded
+  // photos are STILL delivered in the email body as a separate "for
+  // reference" section, so the office can see what was uploaded but
+  // intentionally kept out of the PDF report.
+  const includedPhotos = photos.filter((p) => p.includedInPdf !== false);
+  const excludedPhotos = photos.filter((p) => p.includedInPdf === false);
+
+  function renderPhotoTile(photo: PhotoMetadata, i: number): string {
+    return `
             <a href="${escapeHtml(photo.url)}" target="_blank" style="display: block; margin-bottom: 10px; text-decoration: none;">
               <img
                 src="${escapeHtml(photo.url)}"
@@ -74,13 +74,37 @@ export function buildSubmissionEmail({
                 border="0"
                 style="display: block; width: 100%; max-width: 550px; height: auto; box-sizing: border-box; border-radius: 6px; border: 1px solid #e5e5e5;"
               />
-            </a>`,
-            )
-            .join("")}
+            </a>`;
+  }
+
+  const photoSection =
+    includedPhotos.length > 0
+      ? `
+        <h2 style="font-size: 18px; margin: 24px 0 12px 0; color: #333;">
+          Photos (${includedPhotos.length})
+        </h2>
+        <div style="width: 100%; max-width: 100%;">
+          ${includedPhotos.map(renderPhotoTile).join("")}
         </div>
         <p style="font-size: 13px; color: #888; margin-top: 4px;">
           Click any photo to view full size.
         </p>`
+      : "";
+
+  const excludedSection =
+    excludedPhotos.length > 0
+      ? `
+        <h2 style="font-size: 18px; margin: 24px 0 12px 0; color: #333;">
+          Excluded from PDF — for reference (${excludedPhotos.length})
+        </h2>
+        <p style="font-size: 13px; color: #666; margin: 0 0 12px 0;">
+          These photos are uploaded to the job but the field worker chose to
+          keep them out of the PDF report. They are included here so you have
+          the full set if you need them.
+        </p>
+        <div style="width: 100%; max-width: 100%;">
+          ${excludedPhotos.map(renderPhotoTile).join("")}
+        </div>`
       : "";
 
   return `
@@ -124,6 +148,8 @@ export function buildSubmissionEmail({
     </table>
 
     ${photoSection}
+
+    ${excludedSection}
 
     <hr style="border: none; border-top: 1px solid #e5e5e5; margin: 24px 0;" />
     <p style="font-size: 12px; color: #aaa; margin: 0;">

@@ -122,6 +122,7 @@ export default async function JobDetailPage({ params }: Props) {
               photos={job.photos as PhotoMetadata[]}
               jobId={job.id}
               readOnly={photosReadOnly}
+              allowPdfInclusionToggle={!isSubmitted}
             />
             {!isSubmitted && (
               <>
