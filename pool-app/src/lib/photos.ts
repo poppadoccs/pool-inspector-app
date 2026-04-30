@@ -4,6 +4,12 @@ export type PhotoMetadata = {
   filename: string; // Original filename
   size: number; // Size in bytes (after compression)
   uploadedAt: string; // ISO date string
+  // Optional. undefined and true both mean "include in PDF" (preserves the
+  // pre-feature default). Only an explicit `false` excludes the photo from
+  // PDF rendering. The field is set by setPhotoIncludedInPdf and stays on
+  // the photo object across saves; legacy photos without the field continue
+  // to render exactly as before.
+  includedInPdf?: boolean;
 };
 
 // HEIC detection helper (per PHOT-06)

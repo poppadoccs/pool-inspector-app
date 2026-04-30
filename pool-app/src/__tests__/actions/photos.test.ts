@@ -22,7 +22,11 @@ vi.mock("next/cache", () => ({
   revalidatePath: vi.fn(),
 }));
 
-import { savePhotoMetadata, deletePhoto } from "@/lib/actions/photos";
+import {
+  savePhotoMetadata,
+  deletePhoto,
+  setPhotoIncludedInPdf,
+} from "@/lib/actions/photos";
 import { db } from "@/lib/db";
 import { del } from "@vercel/blob";
 import { revalidatePath } from "next/cache";
@@ -135,5 +139,117 @@ describe("deletePhoto", () => {
     // break the source job's reference to the same URL.
     expect(del).not.toHaveBeenCalled();
     expect(db.$executeRaw).not.toHaveBeenCalled();
+  });
+});
+
+describe("setPhotoIncludedInPdf", () => {
+  it("writes includedInPdf=false on the matching URL via jsonb_set, preserving siblings (URL params + JSONB literal)", async () => {
+    vi.mocked(db.job.findUnique).mockResolvedValueOnce({
+      status: "DRAFT",
+    } as never);
+
+    await setPhotoIncludedInPdf(
+      "job-1",
+      "https://blob.vercel-storage.com/p1.jpg",
+      false,
+    );
+
+    expect(db.$executeRaw).toHaveBeenCalledTimes(1);
+    const call = vi.mocked(db.$executeRaw).mock.calls[0];
+    const subs = call.slice(1) as unknown[];
+    // Substitution order in the action: photoUrl, includedJson, jobId.
+    expect(subs[0]).toBe("https://blob.vercel-storage.com/p1.jpg");
+    expect(subs[1]).toBe("false");
+    expect(subs[2]).toBe("job-1");
+
+    // Verify the SQL uses jsonb_set on a CASE branch keyed by elem->>'url'
+    // — that's what guarantees only the matching photo is rewritten and
+    // sibling photo objects pass through unchanged. Prisma's tagged-template
+    // call shape: call[0] IS the TemplateStringsArray (array-like with join).
+    const sql = (call[0] as readonly string[]).join("?");
+    expect(sql).toContain("jsonb_set");
+    expect(sql).toContain("elem->>'url'");
+    expect(sql).toContain("jsonb_array_elements");
+    expect(sql).toContain("ORDER BY ordinality");
+
+    expect(revalidatePath).toHaveBeenCalledWith("/jobs/job-1");
+  });
+
+  it("writes includedInPdf=true when re-including a previously excluded photo", async () => {
+    vi.mocked(db.job.findUnique).mockResolvedValueOnce({
+      status: "DRAFT",
+    } as never);
+
+    await setPhotoIncludedInPdf(
+      "job-1",
+      "https://blob.vercel-storage.com/re-include.jpg",
+      true,
+    );
+
+    const call = vi.mocked(db.$executeRaw).mock.calls[0];
+    const subs = call.slice(1) as unknown[];
+    expect(subs[1]).toBe("true");
+  });
+
+  it("throws when job not found (findUnique returns null) — guard fires before any SQL", async () => {
+    vi.mocked(db.job.findUnique).mockResolvedValueOnce(null);
+
+    await expect(
+      setPhotoIncludedInPdf(
+        "no-job",
+        "https://blob.vercel-storage.com/x.jpg",
+        false,
+      ),
+    ).rejects.toThrow("Job not found");
+    expect(db.$executeRaw).not.toHaveBeenCalled();
+    expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("throws when row count is 0 (job vanished between findUnique and UPDATE)", async () => {
+    vi.mocked(db.job.findUnique).mockResolvedValueOnce({
+      status: "DRAFT",
+    } as never);
+    vi.mocked(db.$executeRaw).mockResolvedValueOnce(0);
+
+    await expect(
+      setPhotoIncludedInPdf(
+        "ghost-job",
+        "https://blob.vercel-storage.com/x.jpg",
+        false,
+      ),
+    ).rejects.toThrow("Job not found");
+    expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("refuses when job is SUBMITTED — terminal state cannot have its PDF makeup edited (post-submit edits go through createEditableCopy)", async () => {
+    vi.mocked(db.job.findUnique).mockResolvedValueOnce({
+      status: "SUBMITTED",
+    } as never);
+
+    await expect(
+      setPhotoIncludedInPdf(
+        "submitted-1",
+        "https://blob.vercel-storage.com/x.jpg",
+        false,
+      ),
+    ).rejects.toThrow("Cannot change photo PDF inclusion on a submitted job");
+    expect(db.$executeRaw).not.toHaveBeenCalled();
+  });
+
+  it("ALLOWS toggling on an editable copy — the include flag lives on the copy's own job.photos JSON, not on the shared blob (deliberate divergence from deletePhoto's editable-copy guard)", async () => {
+    vi.mocked(db.job.findUnique).mockResolvedValueOnce({
+      status: "DRAFT",
+    } as never);
+
+    await setPhotoIncludedInPdf(
+      "copy-1",
+      "https://blob.vercel-storage.com/shared.jpg",
+      false,
+    );
+
+    // No throw, SQL ran. The copy's PDF makeup is editable; only the
+    // shared blob is off-limits (which this action never touches — no
+    // del() call, only a JSON UPDATE on the copy's own row).
+    expect(db.$executeRaw).toHaveBeenCalledTimes(1);
   });
 });

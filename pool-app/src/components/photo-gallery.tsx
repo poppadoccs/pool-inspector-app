@@ -2,26 +2,41 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Trash2, Loader2 } from "lucide-react";
+import { Trash2, Loader2, FileText, FileX } from "lucide-react";
 import { toast } from "sonner";
-import { deletePhoto } from "@/lib/actions/photos";
+import { deletePhoto, setPhotoIncludedInPdf } from "@/lib/actions/photos";
 import { PhotoLightbox } from "@/components/photo-lightbox";
 import type { PhotoMetadata } from "@/lib/photos";
+
+// Treat undefined and true identically as "included" — preserves pre-feature
+// behavior for legacy photos written before the includedInPdf field existed.
+function isIncludedInPdf(photo: PhotoMetadata): boolean {
+  return photo.includedInPdf !== false;
+}
 
 export function PhotoGallery({
   photos,
   jobId,
   readOnly = false,
+  allowPdfInclusionToggle,
 }: {
   photos: PhotoMetadata[];
   jobId: string;
   readOnly?: boolean;
+  // When omitted, tracks !readOnly (preserves pre-feature behavior). Set
+  // explicitly to keep the include/exclude toggle visible while delete stays
+  // gated by readOnly — the editable-copy case, where the photo blob is
+  // shared with the SUBMITTED source so destructive ops are unsafe but the
+  // copy's own PDF makeup is fully editable.
+  allowPdfInclusionToggle?: boolean;
 }) {
+  const showPdfToggle = allowPdfInclusionToggle ?? !readOnly;
   const router = useRouter();
   const [selectedPhoto, setSelectedPhoto] = useState<PhotoMetadata | null>(
-    null
+    null,
   );
   const [deletingUrl, setDeletingUrl] = useState<string | null>(null);
+  const [togglingUrl, setTogglingUrl] = useState<string | null>(null);
 
   async function handleDelete(photo: PhotoMetadata) {
     setDeletingUrl(photo.url);
@@ -36,6 +51,20 @@ export function PhotoGallery({
     }
   }
 
+  async function handleTogglePdf(photo: PhotoMetadata) {
+    const next = !isIncludedInPdf(photo);
+    setTogglingUrl(photo.url);
+    try {
+      await setPhotoIncludedInPdf(jobId, photo.url, next);
+      toast.success(next ? "Photo included in PDF" : "Photo excluded from PDF");
+      router.refresh();
+    } catch {
+      toast.error("Failed to update PDF inclusion");
+    } finally {
+      setTogglingUrl(null);
+    }
+  }
+
   if (photos.length === 0) {
     return (
       <p className="text-base text-zinc-500">
@@ -47,31 +76,75 @@ export function PhotoGallery({
   return (
     <>
       <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-        {photos.map((photo) => (
-          <div key={photo.url} className="group relative aspect-square">
-            <img
-              src={photo.url}
-              alt={photo.filename}
-              className="size-full cursor-pointer rounded-lg object-cover"
-              onClick={() => setSelectedPhoto(photo)}
-            />
-            {!readOnly && (
-              <button
-                type="button"
-                disabled={deletingUrl === photo.url}
-                onClick={() => handleDelete(photo)}
-                className="absolute top-1 right-1 flex min-h-[36px] min-w-[36px] items-center justify-center rounded-full bg-black/60 p-1.5 text-white opacity-0 transition-opacity focus:opacity-100 group-hover:opacity-100"
-              >
-                {deletingUrl === photo.url ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <Trash2 className="size-4" />
-                )}
-                <span className="sr-only">Delete photo</span>
-              </button>
-            )}
-          </div>
-        ))}
+        {photos.map((photo) => {
+          const included = isIncludedInPdf(photo);
+          const toggling = togglingUrl === photo.url;
+          return (
+            <div
+              key={photo.url}
+              className="group relative aspect-square"
+              data-testid={`photo-tile-${photo.url}`}
+              data-included-in-pdf={included ? "true" : "false"}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={photo.url}
+                alt={photo.filename}
+                className={`size-full cursor-pointer rounded-lg object-cover ${
+                  included ? "" : "opacity-50"
+                }`}
+                onClick={() => setSelectedPhoto(photo)}
+              />
+              {!included && (
+                <span
+                  className="pointer-events-none absolute bottom-1 left-1 rounded bg-zinc-900/80 px-1.5 py-0.5 text-[10px] font-semibold text-white"
+                  data-testid={`excluded-badge-${photo.url}`}
+                >
+                  Not in PDF
+                </span>
+              )}
+              {showPdfToggle && (
+                <button
+                  type="button"
+                  aria-label={
+                    included
+                      ? `Exclude ${photo.filename} from PDF`
+                      : `Include ${photo.filename} in PDF`
+                  }
+                  disabled={toggling}
+                  onClick={() => handleTogglePdf(photo)}
+                  className="absolute top-1 left-1 flex min-h-[36px] min-w-[36px] items-center justify-center rounded-full bg-black/60 p-1.5 text-white opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100 disabled:opacity-60"
+                >
+                  {toggling ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : included ? (
+                    <FileText className="size-4" />
+                  ) : (
+                    <FileX className="size-4" />
+                  )}
+                  <span className="sr-only">
+                    {included ? "Exclude from PDF" : "Include in PDF"}
+                  </span>
+                </button>
+              )}
+              {!readOnly && (
+                <button
+                  type="button"
+                  disabled={deletingUrl === photo.url}
+                  onClick={() => handleDelete(photo)}
+                  className="absolute top-1 right-1 flex min-h-[36px] min-w-[36px] items-center justify-center rounded-full bg-black/60 p-1.5 text-white opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
+                >
+                  {deletingUrl === photo.url ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="size-4" />
+                  )}
+                  <span className="sr-only">Delete photo</span>
+                </button>
+              )}
+            </div>
+          );
+        })}
       </div>
       <PhotoLightbox
         photo={selectedPhoto}

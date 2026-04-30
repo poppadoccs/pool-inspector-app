@@ -27,6 +27,53 @@ export async function savePhotoMetadata(
   revalidatePath(`/jobs/${jobId}`);
 }
 
+// Toggle a photo's PDF-include flag. Mirrors deletePhoto's guards:
+// SUBMITTED jobs are terminal and editable copies share blobs with the
+// source. Editable copies CAN flip the include flag (it lives in the
+// copy's own job.photos JSON, not the shared blob), but we still block
+// SUBMITTED to keep the post-submit edit path going through createEditableCopy.
+//
+// SQL strategy: rebuild the photos array atomically. For the matching
+// URL, jsonb_set writes `includedInPdf`; every sibling object is passed
+// through unchanged, preserving any other fields. Order is preserved via
+// WITH ORDINALITY so existing render order is stable.
+export async function setPhotoIncludedInPdf(
+  jobId: string,
+  photoUrl: string,
+  included: boolean,
+) {
+  const job = await db.job.findUnique({
+    where: { id: jobId },
+    select: { status: true },
+  });
+  if (!job) throw new Error("Job not found");
+  if (job.status === "SUBMITTED") {
+    throw new Error("Cannot change photo PDF inclusion on a submitted job");
+  }
+
+  // Stringify so Prisma can interpolate as a parameterized JSONB literal,
+  // matching the savePhotoMetadata pattern.
+  const includedJson = JSON.stringify(included);
+  const affected = await db.$executeRaw`
+    UPDATE jobs
+    SET photos = (
+      SELECT COALESCE(jsonb_agg(
+        CASE
+          WHEN elem->>'url' = ${photoUrl}
+            THEN jsonb_set(elem, '{includedInPdf}', ${includedJson}::jsonb)
+          ELSE elem
+        END
+        ORDER BY ordinality
+      ), '[]'::jsonb)
+      FROM jsonb_array_elements(COALESCE(photos, '[]'::jsonb)) WITH ORDINALITY AS t(elem, ordinality)
+    )
+    WHERE id = ${jobId}
+  `;
+  if (affected === 0) throw new Error("Job not found");
+
+  revalidatePath(`/jobs/${jobId}`);
+}
+
 export async function deletePhoto(jobId: string, photoUrl: string) {
   // Server-side guards mirroring the UI read-only intent. UI hides the
   // delete button on SUBMITTED jobs and on editable copies, but the
